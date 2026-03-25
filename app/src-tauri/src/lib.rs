@@ -11,7 +11,7 @@ const ORCHESTRATOR_PORT: u16 = 7421;
 // ── Logging ───────────────────────────────────────────────────────────
 fn log(msg: &str) {
     let home = std::env::var("HOME").unwrap_or_default();
-    let path = PathBuf::from(home).join(".claude-manager").join("tauri.log");
+    let path = PathBuf::from(home).join(".clawbie").join("tauri.log");
     let _ = std::fs::create_dir_all(path.parent().unwrap());
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
         let ts = std::time::SystemTime::now()
@@ -25,24 +25,17 @@ fn log(msg: &str) {
 // ── Paths ─────────────────────────────────────────────────────────────
 fn base_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home).join(".claude-manager")
+    PathBuf::from(home).join(".clawbie")
 }
 fn tasks_dir() -> PathBuf { base_dir().join("tasks") }
 fn brains_dir() -> PathBuf { base_dir().join("brains") }
+fn prompts_dir() -> PathBuf { base_dir().join("clawbie").join("prompts") }
+fn skills_dir() -> PathBuf { base_dir().join("skills") }
 
-fn read_brain_id(key: &str) -> String {
-    read_file(&base_dir().join(key))
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "claude-code".to_string())
-}
-
-fn clawbie_brain_dir() -> PathBuf { brains_dir().join(read_brain_id("brain.txt")) }
-fn worker_brain_dir() -> PathBuf { brains_dir().join(read_brain_id("worker-brain.txt")) }
-
-fn agent_script_path() -> PathBuf { clawbie_brain_dir().join("clawbie-agent.mjs") }
-fn worker_script_path() -> PathBuf { worker_brain_dir().join("worker-agent.mjs") }
-fn agent_ready_flag() -> PathBuf { clawbie_brain_dir().join(".ready") }
-fn worker_ready_flag() -> PathBuf { worker_brain_dir().join(".ready") }
+fn engine_dir() -> PathBuf { brains_dir().join("engine") }
+fn agent_script_path() -> PathBuf { engine_dir().join("clawbie-agent.mjs") }
+fn worker_script_path() -> PathBuf { engine_dir().join("worker-agent.mjs") }
+fn engine_ready_flag() -> PathBuf { engine_dir().join(".ready") }
 fn toolkits_dir() -> PathBuf { base_dir().join("toolkits") }
 
 // ── 工具包读取 ──────────────────────────────────────────────────────────
@@ -99,176 +92,11 @@ fn clawbie_session_dir(session_id: &str) -> PathBuf {
     base_dir().join("clawbie").join(session_id)
 }
 
-// ── Agent SDK 脚本内容 ────────────────────────────────────────────────
-
-const CLAWBIE_AGENT_SCRIPT: &str = r#"
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-const chunks = [];
-for await (const chunk of process.stdin) chunks.push(chunk);
-const raw = Buffer.concat(chunks).toString("utf8").trim();
-if (!raw) process.exit(1);
-let prompt, shouldContinue;
-try {
-  const input = JSON.parse(raw);
-  prompt = input.prompt;
-  shouldContinue = input.continue ?? false;
-} catch {
-  prompt = raw;
-  shouldContinue = false;
-}
-
-const SYSTEM = `# 身份（最高优先级）
-你的名字是 Clawbie，是主人专属的私人调度助理 🦞
-你聪明、体贴、说话亲切自然，用中文回复（除非主人用其他语言）。
-
-# 工作原则
-直接回答主人的问题，简洁自然。
-
-# 工具箱（必须严格遵守）
-你有一个本地工具箱，固定路径：~/.claude-manager/toolkits/
-不要搜索，不要猜测，直接使用这个路径。
-
-【重要】每次对话开始时，你必须先执行 cat ~/.claude-manager/toolkits/README.md 了解当前可用的工具。
-当主人问你有什么工具、能做什么时，你应该根据 README.md 的内容回答。
-当主人让你使用某个工具或你判断需要某种能力时，先读 README.md 看看有没有合适的。
-找到后 cat ~/.claude-manager/toolkits/{工具ID}/manifest.json 查看详细用法。
-
-【创建工具的唯一正确方式】
-第一步：mkdir -p ~/.claude-manager/toolkits/{工具ID}/
-第二步：在该目录下写入 manifest.json（README.md 会自动更新，不需要你维护）
-
-manifest.json 必须包含以下字段：
-{"name":"工具名","description":"这个工具能做什么","usage":"使用方式和示例","type":"cli 或 mcp_stdio 或 mcp_sse"}
-
-可选字段：install（安装命令）、command（启动命令）、args（参数）、env（环境变量）、url（SSE地址）
-
-举例，如果主人说"帮我加一个百度搜索工具"，你应该直接执行：
-mkdir -p ~/.claude-manager/toolkits/baidu-search/
-然后写入 ~/.claude-manager/toolkits/baidu-search/manifest.json
-
-禁止：
-- 不要用 find 搜索目录
-- 不要把脚本文件直接放到 toolkits/ 下
-- 不要创建 toolkits/ 以外的路径
-- 每个工具必须是一个子目录 + manifest.json
-`;
-
-try {
-  for await (const msg of query({
-    prompt,
-    options: {
-      continue: shouldContinue,
-      appendSystemPrompt: SYSTEM,
-      includePartialMessages: true,
-      model: "claude-opus-4-6",
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
-    },
-  })) {
-    if (msg.type === "result") {
-      process.stdout.write(JSON.stringify({
-        type: "result",
-        subtype: msg.subtype ?? "success",
-        is_error: !!(msg.subtype && msg.subtype !== "success"),
-        result: msg.result ?? "",
-        session_id: msg.session_id ?? "",
-      }) + "\n");
-    } else {
-      process.stdout.write(JSON.stringify(msg) + "\n");
-    }
-  }
-} catch (e) {
-  process.stdout.write(JSON.stringify({
-    type: "result",
-    subtype: "error",
-    is_error: true,
-    result: String(e?.message ?? e),
-  }) + "\n");
-}
-"#;
-
-const WORKER_AGENT_SCRIPT: &str = r#"
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-const chunks = [];
-for await (const chunk of process.stdin) chunks.push(chunk);
-const raw = Buffer.concat(chunks).toString("utf8").trim();
-if (!raw) process.exit(1);
-let prompt, shouldContinue;
-try {
-  const input = JSON.parse(raw);
-  prompt = input.prompt;
-  shouldContinue = input.continue ?? false;
-} catch {
-  prompt = raw;
-  shouldContinue = false;
-}
-
-const SYSTEM = `你是一个专注的任务执行者。
-
-请读取当前目录的 task.md，然后执行任务。
-
-执行规范（必须遵守）：
-1. 每完成一个阶段，【覆盖写入】standup.md，固定格式：
-   已完成：[做了什么]
-   正在做：[当前步骤]
-   下一步：[计划]
-
-2. 每一步追加一行到 full-log.md（格式：[时间] 简短描述）
-
-3. 任务完成时：
-   - 把最终结果写入 result.md
-   - 把 status.txt 内容改为：done
-
-4. 遇到无法解决的问题时：
-   - 把 status.txt 内容改为：stuck
-   - 把卡住原因和已尝试的方法写入 blocker.md
-
-现在开始。`;
-
-try {
-  for await (const msg of query({
-    prompt,
-    options: {
-      continue: shouldContinue,
-      appendSystemPrompt: SYSTEM,
-      includePartialMessages: true,
-      model: "claude-sonnet-4-6",
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
-    },
-  })) {
-    if (msg.type === "result") {
-      process.stdout.write(JSON.stringify({
-        type: "result",
-        subtype: msg.subtype ?? "success",
-        is_error: !!(msg.subtype && msg.subtype !== "success"),
-        result: msg.result ?? "",
-        session_id: msg.session_id ?? "",
-      }) + "\n");
-    } else {
-      process.stdout.write(JSON.stringify(msg) + "\n");
-    }
-  }
-} catch (e) {
-  process.stdout.write(JSON.stringify({
-    type: "result",
-    subtype: "error",
-    is_error: true,
-    result: String(e?.message ?? e),
-  }) + "\n");
-}
-"#;
-
-// ── Brain manifest ────────────────────────────────────────────────────
-const BRAIN_MANIFEST: &str = r#"{"name":"Claude Code Agent","description":"基于 Claude Agent SDK 的大脑","clawbie_script":"clawbie-agent.mjs","worker_script":"worker-agent.mjs","setup":"npm install"}"#;
-
-// ── OpenRouter brain ──────────────────────────────────────────────────
-const OPENROUTER_CLAWBIE_SCRIPT: &str = include_str!("brains/openrouter-clawbie.mjs");
-const OPENROUTER_WORKER_SCRIPT: &str = include_str!("brains/openrouter-worker.mjs");
-const OPENROUTER_MANIFEST: &str = r#"{"name":"OpenRouter","description":"通过 OpenRouter 接入多种大模型","clawbie_script":"clawbie-agent.mjs","worker_script":"worker-agent.mjs","configurable":true,"models":[{"id":"google/gemini-2.5-pro","name":"Gemini 2.5 Pro"},{"id":"google/gemini-2.5-flash","name":"Gemini 2.5 Flash"},{"id":"anthropic/claude-sonnet-4","name":"Claude Sonnet 4"},{"id":"anthropic/claude-opus-4","name":"Claude Opus 4"},{"id":"openai/gpt-4.1","name":"GPT-4.1"},{"id":"openai/o3","name":"o3"},{"id":"deepseek/deepseek-r1","name":"DeepSeek R1"}]}"#;
-const OPENROUTER_DEFAULT_CONFIG: &str = r#"{"api_key":"","model":"google/gemini-2.5-flash"}"#;
+// ── 统一 Agent 脚本 ──────────────────────────────────────────────────
+const CLAWBIE_AGENT_SCRIPT: &str = include_str!("brains/clawbie-agent.mjs");
+const WORKER_AGENT_SCRIPT: &str = include_str!("brains/worker-agent.mjs");
+const PROVIDERS_SCRIPT: &str = include_str!("brains/providers.mjs");
+const DEFAULT_CONFIG: &str = r#"{"provider":"openrouter","api_key":"","model":"google/gemini-2.5-flash","extract_model":"","worker_model":""}"#;
 
 // ── 内置工具包安装 ────────────────────────────────────────────────────
 fn setup_toolkits() {
@@ -352,65 +180,49 @@ fn setup_toolkits() {
     sync_toolkits_readme();
 }
 
-// ── Brain 安装（后台线程，只跑一次）───────────────────────────────────
-fn setup_brain() {
-    std::thread::spawn(|| {
-        let dir = brains_dir().join("claude-code");
-        let _ = std::fs::create_dir_all(&dir);
-        let _ = std::fs::create_dir_all(base_dir().join("clawbie"));
+// ── Prompt 模板部署 ──────────────────────────────────────────────────
+const PROMPT_IDENTITY: &str = include_str!("prompts/identity.md");
+const PROMPT_PERSONALITY: &str = include_str!("prompts/personality.md");
+const PROMPT_TOOLKIT_GUIDE: &str = include_str!("prompts/toolkit_guide.md");
+const PROMPT_TOOLS_DESC: &str = include_str!("prompts/tools_description.md");
 
-        // 写入脚本文件
-        let _ = std::fs::write(dir.join("clawbie-agent.mjs"), CLAWBIE_AGENT_SCRIPT);
-        let _ = std::fs::write(dir.join("worker-agent.mjs"), WORKER_AGENT_SCRIPT);
-        let _ = std::fs::write(dir.join("manifest.json"), BRAIN_MANIFEST);
+fn setup_prompts() {
+    let dir = prompts_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::create_dir_all(skills_dir());
 
-        // 写入默认 brain 配置（如果不存在）
-        let brain_txt = base_dir().join("brain.txt");
-        let worker_brain_txt = base_dir().join("worker-brain.txt");
-        if !brain_txt.exists() {
-            let _ = std::fs::write(&brain_txt, "claude-code");
-        }
-        if !worker_brain_txt.exists() {
-            let _ = std::fs::write(&worker_brain_txt, "claude-code");
-        }
+    // 始终更新（prompt 模板随 app 版本升级）
+    let _ = std::fs::write(dir.join("identity.md"), PROMPT_IDENTITY);
+    let _ = std::fs::write(dir.join("personality.md"), PROMPT_PERSONALITY);
+    let _ = std::fs::write(dir.join("toolkit_guide.md"), PROMPT_TOOLKIT_GUIDE);
+    let _ = std::fs::write(dir.join("tools_description.md"), PROMPT_TOOLS_DESC);
+    log("prompts deployed");
+}
 
-        // ── OpenRouter brain（无依赖，直接 ready）────────────────────
-        let or_dir = brains_dir().join("openrouter");
-        let _ = std::fs::create_dir_all(&or_dir);
-        let _ = std::fs::write(or_dir.join("clawbie-agent.mjs"), OPENROUTER_CLAWBIE_SCRIPT);
-        let _ = std::fs::write(or_dir.join("worker-agent.mjs"), OPENROUTER_WORKER_SCRIPT);
-        let _ = std::fs::write(or_dir.join("manifest.json"), OPENROUTER_MANIFEST);
-        // 只在 package.json 不存在时写入
-        let or_pkg = or_dir.join("package.json");
-        if !or_pkg.exists() {
-            let _ = std::fs::write(&or_pkg, r#"{"type":"module"}"#);
-        }
-        // 只在 config.json 不存在时写入（保留用户配置）
-        let or_cfg = or_dir.join("config.json");
-        if !or_cfg.exists() {
-            let _ = std::fs::write(&or_cfg, OPENROUTER_DEFAULT_CONFIG);
-        }
-        let _ = std::fs::write(or_dir.join(".ready"), "ok");
-        log("brain openrouter ready");
+// ── 统一引擎部署 ─────────────────────────────────────────────────────
+fn setup_engine() {
+    let dir = engine_dir();
+    let _ = std::fs::create_dir_all(&dir);
 
-        // ── claude-code npm install（跳过如果已完成）─────────────────
-        if !dir.join(".ready").exists() {
-            let pkg = r#"{"type":"module","dependencies":{"@anthropic-ai/claude-agent-sdk":"latest"}}"#;
-            let _ = std::fs::write(dir.join("package.json"), pkg);
+    // 部署脚本（每次更新）
+    let _ = std::fs::write(dir.join("clawbie-agent.mjs"), CLAWBIE_AGENT_SCRIPT);
+    let _ = std::fs::write(dir.join("worker-agent.mjs"), WORKER_AGENT_SCRIPT);
+    let _ = std::fs::write(dir.join("providers.mjs"), PROVIDERS_SCRIPT);
 
-            log("installing brain claude-code...");
-            match Command::new("npm").args(["install"]).current_dir(&dir).output() {
-                Ok(out) if out.status.success() => {
-                    let _ = std::fs::write(dir.join(".ready"), "ok");
-                    log("brain claude-code ready");
-                }
-                Ok(out) => log(&format!("npm install failed: {}", String::from_utf8_lossy(&out.stderr))),
-                Err(e) => log(&format!("npm not found: {}", e)),
-            }
-        } else {
-            log("brain claude-code already installed");
-        }
-    });
+    // package.json（只在不存在时写入）
+    let pkg = dir.join("package.json");
+    if !pkg.exists() {
+        let _ = std::fs::write(&pkg, r#"{"type":"module"}"#);
+    }
+
+    // 全局配置（只在不存在时写入，保留用户设置）
+    let cfg = base_dir().join("config.json");
+    if !cfg.exists() {
+        let _ = std::fs::write(&cfg, DEFAULT_CONFIG);
+    }
+
+    let _ = std::fs::write(dir.join(".ready"), "ok");
+    log("engine ready");
 }
 
 // ── Shared state types ────────────────────────────────────────────────
@@ -528,20 +340,16 @@ fn start_slow_timer(app: AppHandle, got_first: Arc<Mutex<bool>>, session_id: Str
     });
 }
 
-// ── Clawbie 调用（Agent SDK）─────────────────────────────────────────
-fn run_clawbie(app: &AppHandle, prompt: String, session_id: &str, cancel: &CancelFlag, current_pid: &CurrentPid) {
-    run_clawbie_sdk(app, prompt, session_id, cancel, current_pid);
-}
-
-fn run_clawbie_sdk(
+// ── Clawbie 调用 ─────────────────────────────────────────────────────
+fn run_clawbie(
     app: &AppHandle,
     prompt: String,
     session_id: &str,
     cancel: &CancelFlag,
     current_pid: &CurrentPid,
 ) {
-    if !agent_ready_flag().exists() {
-        app.emit("claude-error", serde_json::json!({"message": "Agent SDK 正在初始化，请稍等片刻后重试", "session_id": session_id})).ok();
+    if !engine_ready_flag().exists() {
+        app.emit("claude-error", serde_json::json!({"message": "引擎正在初始化，请稍等片刻后重试", "session_id": session_id})).ok();
         return;
     }
 
@@ -569,28 +377,11 @@ fn run_clawbie_sdk(
         }
     };
 
-    // 用标记文件判断是否续接
-    let started_flag = session_dir.join(".started");
-    let should_continue = started_flag.exists();
-    if !should_continue {
-        let _ = std::fs::write(&started_flag, "ok");
-    }
-
+    // 统一引擎：每次都是新对话，记忆系统负责连续性
     if let Some(mut stdin) = child.stdin.take() {
-        // 第一条消息注入工具箱上下文
-        let final_prompt = if !should_continue {
-            let readme = read_file(&toolkits_dir().join("README.md")).unwrap_or_default();
-            if readme.is_empty() {
-                prompt
-            } else {
-                format!("[系统上下文 - 本地工具箱]\n你的本地工具箱路径：~/.claude-manager/toolkits/\n当前可用工具：\n{}\n详情见各子目录下的 manifest.json。\n[/系统上下文]\n\n{}", readme, prompt)
-            }
-        } else {
-            prompt
-        };
         let input = serde_json::json!({
-            "prompt": final_prompt,
-            "continue": should_continue,
+            "prompt": prompt,
+            "continue": false,
         });
         let _ = stdin.write_all(input.to_string().as_bytes());
     }
@@ -693,12 +484,12 @@ fn orc_create(description: &str, name: &str, source_session: &str) -> String {
         let _ = std::fs::write(&started_flag, "ok");
     }
 
-    if !worker_ready_flag().exists() {
-        log(&format!("worker brain not ready, cannot create task {}", id));
-        return serde_json::json!({"error": "Worker 大脑尚未初始化，请稍等"}).to_string();
+    if !engine_ready_flag().exists() {
+        log(&format!("engine not ready, cannot create task {}", id));
+        return serde_json::json!({"error": "引擎尚未初始化，请稍等"}).to_string();
     }
 
-    log(&format!("creating worker task: {} (agent sdk)", id));
+    log(&format!("creating worker task: {}", id));
 
     let dir_clone = dir.clone();
     let id_clone = id.clone();
@@ -1147,31 +938,28 @@ fn get_brains() -> String {
 
 #[tauri::command]
 fn get_brain_config() -> String {
-    serde_json::json!({
-        "clawbie": read_brain_id("brain.txt"),
-        "worker": read_brain_id("worker-brain.txt"),
-    }).to_string()
+    let cfg_path = base_dir().join("config.json");
+    std::fs::read_to_string(&cfg_path).unwrap_or_else(|_| DEFAULT_CONFIG.to_string())
 }
 
 #[tauri::command]
-fn get_brain_detail(brain_id: String) -> String {
-    let config_path = brains_dir().join(&brain_id).join("config.json");
-    std::fs::read_to_string(&config_path).unwrap_or_else(|_| "{}".to_string())
+fn get_brain_detail(_brain_id: String) -> String {
+    // Legacy: now returns global config
+    let cfg_path = base_dir().join("config.json");
+    std::fs::read_to_string(&cfg_path).unwrap_or_else(|_| "{}".to_string())
 }
 
 #[tauri::command]
-fn set_brain_detail(brain_id: String, config: String) -> String {
-    let config_path = brains_dir().join(&brain_id).join("config.json");
-    let _ = std::fs::write(&config_path, &config);
-    log(&format!("brain detail updated: {}", brain_id));
+fn set_brain_detail(_brain_id: String, config: String) -> String {
+    let cfg_path = base_dir().join("config.json");
+    let _ = std::fs::write(&cfg_path, &config);
+    log("config updated");
     serde_json::json!({"status": "ok"}).to_string()
 }
 
 #[tauri::command]
-fn set_brain_config(clawbie: String, worker: String) -> String {
-    let _ = std::fs::write(base_dir().join("brain.txt"), clawbie.trim());
-    let _ = std::fs::write(base_dir().join("worker-brain.txt"), worker.trim());
-    log(&format!("brain config updated: clawbie={}, worker={}", clawbie.trim(), worker.trim()));
+fn set_brain_config(_clawbie: String, _worker: String) -> String {
+    // Legacy: brain switching removed, now single engine with provider config
     serde_json::json!({"status": "ok"}).to_string()
 }
 
@@ -1198,8 +986,9 @@ pub fn run() {
             app.manage(sessions.clone());
 
             let _ = GLOBAL_APP.set(app.handle().clone());
+            setup_prompts();
             setup_toolkits();
-            setup_brain();
+            setup_engine();
             start_orchestrator_server();
             start_heartbeat(app.handle().clone(), sessions);
             Ok(())

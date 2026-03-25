@@ -2,6 +2,6 @@
   "name": "阿里巴巴国际站搜索",
   "description": "在阿里巴巴国际站 (alibaba.com) 搜索商品并提取链接、标题、价格。通过 Chrome 浏览器自动化实现，需要用户先在 Chrome 登录阿里巴巴。",
   "type": "cli",
-  "usage": "通过 Python 调用:\n\n搜索商品 (返回商品链接列表):\npython3 ~/.claude-manager/toolkits/alibaba-search/alibaba_search.py search '关键词' 数量\n示例: python3 ~/.claude-manager/toolkits/alibaba-search/alibaba_search.py search 'phone case' 100\n返回: {\"ok\":true, \"count\":100, \"products\":[{\"url\":\"...\", \"title\":\"...\", \"price\":\"...\"}]}\n\n获取单个商品详情:\npython3 ~/.claude-manager/toolkits/alibaba-search/alibaba_search.py detail 'https://www.alibaba.com/product-detail/xxx'\n返回: {\"ok\":true, \"title\":\"...\", \"price\":\"...\", \"supplier\":\"...\", \"min_order\":\"...\"}\n\n注意: 使用前确保 Chrome 已打开并登录阿里巴巴国际站，否则可能遇到验证码。",
+  "usage": "通过 Python 调用:\n\n搜索商品 (返回商品链接列表):\npython3 ~/.clawbie/toolkits/alibaba-search/alibaba_search.py search '关键词' 数量\n示例: python3 ~/.clawbie/toolkits/alibaba-search/alibaba_search.py search 'phone case' 100\n返回: {\"ok\":true, \"count\":100, \"products\":[{\"url\":\"...\", \"title\":\"...\", \"price\":\"...\"}]}\n\n获取单个商品详情:\npython3 ~/.clawbie/toolkits/alibaba-search/alibaba_search.py detail 'https://www.alibaba.com/product-detail/xxx'\n返回: {\"ok\":true, \"title\":\"...\", \"price\":\"...\", \"supplier\":\"...\", \"min_order\":\"...\"}\n\n注意: 使用前确保 Chrome 已打开并登录阿里巴巴国际站，否则可能遇到验证码。",
   "install": "无额外依赖，需要 macOS + Google Chrome + 辅助功能权限"
 }
