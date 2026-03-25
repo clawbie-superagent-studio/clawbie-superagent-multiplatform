@@ -1,0 +1,7 @@
+{
+  "name": "Douyin Short Drama",
+  "description": "Browse and manage Douyin short dramas (短剧): list trending dramas, open a drama, list episodes, play & download episodes. Uses AppleScript + Chrome JS + cliclick + curl.",
+  "type": "cli",
+  "usage": "PYTHONPATH=~/.claude-manager/toolkits/douyin-drama python3 -c \"\nfrom douyin_drama.tools import <func>\nprint(<func>(...))\n\"\n\nAvailable functions:\n- list_dramas(category) — list trending short dramas\n- open_drama(index) — open a drama from the list (cliclick)\n- get_episodes() — get episode list of the current drama\n- play_episode(episode) — play a specific episode number\n- download_episode(save_path) — download the currently playing episode\n- get_drama_info() — get current drama title, episode, stats\n- wait() — random 3-5s delay for anti-bot",
+  "install": "Requires macOS + Google Chrome + cliclick (brew install cliclick) + curl. Accessibility permission required."
+}

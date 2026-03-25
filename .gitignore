@@ -1,0 +1,19 @@
+# Tauri / Rust
+app/src-tauri/target/
+app/src-tauri/gen/
+
+# Node
+app/node_modules/
+orchestrator/node_modules/
+
+# Vite build
+app/dist/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Tauri build output
+app/src-tauri/target/

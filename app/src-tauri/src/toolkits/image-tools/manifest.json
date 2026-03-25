@@ -1,0 +1,7 @@
+{
+  "name": "图片处理工具",
+  "description": "图片处理四件套：AI文生图、AI风格转换（基于火山引擎即梦API）、像素级颜色替换、图片缩放/尺寸匹配。",
+  "type": "cli",
+  "usage": "通过 Python 调用，需要设置 PYTHONPATH 指向工具目录：\n\nPYTHONPATH=~/.claude-manager/toolkits/image-tools python3 -c \"\nimport json\nfrom image_ops import <函数名>\nresult = <函数名>(**参数)\nprint(json.dumps(result, ensure_ascii=False))\n\"\n\n可用函数：\n- text_to_image(prompt, output_path, width=512, height=512) — AI文生图，根据文字描述生成图片，需要环境变量 JIMENG_AK 和 JIMENG_SK\n- style_transfer(input_path, output_path, prompt, scale=0.5) — AI风格转换，需要环境变量 JIMENG_AK 和 JIMENG_SK（火山引擎即梦API密钥）\n- recolor(input_path, output_path, target_r, target_g, target_b, match_r_min=0, match_r_max=255, match_g_min=0, match_g_max=255, match_b_min=0, match_b_max=255) — 像素级颜色替换，保留明度关系\n- resize(input_path, output_path, width=0, height=0, reference_path='') — 缩放图片，可指定尺寸或参考图片匹配尺寸",
+  "install": "pip3 install Pillow numpy（text_to_image 和 style_transfer 额外需要火山引擎即梦API密钥）"
+}
