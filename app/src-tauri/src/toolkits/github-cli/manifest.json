@@ -1,0 +1,7 @@
+{
+  "name": "GitHub CLI",
+  "description": "查询和操作 GitHub issue、PR、代码搜索，适合需要查看或操作 GitHub 仓库的任务",
+  "usage": "gh pr list\ngh issue create --title \"xxx\"\ngh pr view 123",
+  "install": "brew install gh",
+  "type": "cli"
+}

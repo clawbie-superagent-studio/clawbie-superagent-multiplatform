@@ -1,0 +1,6 @@
+{
+  "name": "工人管理",
+  "description": "创建、查询、管理后台工人。工人是独立的 Claude Code 进程，可以在后台自主执行任务，完成后系统会自动通知你，不需要你轮询等待。",
+  "type": "cli",
+  "usage": "通过 curl 调用本地 API (端口 7421):\n\n创建工人 (必须提供 name 和 task):\ncurl -X POST http://localhost:7421/create -H 'Content-Type: application/json' -d '{\"name\":\"简短名称\",\"task\":\"详细任务描述\"}'\n\n【重要】创建工人后立刻告诉主人已创建，然后结束回复。禁止用 sleep 或循环等待工人完成。工人完成后系统会自动发通知给你，你不需要主动查询。\n\n查看所有工人状态 (仅当主人要求时才调用):\ncurl http://localhost:7421/status\n\n删除单个工人:\ncurl -X POST http://localhost:7421/delete -H 'Content-Type: application/json' -d '{\"id\":\"task-xxx\"}'\n\n清空所有工人:\ncurl -X POST http://localhost:7421/clean\n\n工人状态说明:\n- working: 正在执行中\n- done: 已完成, 结果在 result 字段\n- stuck: 卡住了, 原因在 blocker 字段"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "Boss直聘招聘助手",
+  "description": "自动化Boss直聘招聘操作：浏览候选人、发消息、下载简历、打招呼。通过AppleScript控制Chrome浏览器完成页面操作。",
+  "type": "cli",
+  "usage": "通过 Python 调用，需要设置 PYTHONPATH 指向工具目录：\n\nPYTHONPATH=~/.claude-manager/toolkits/zhipin-recruiter python3 -c \"\nimport json\nfrom zhipin_recruiter.tools import <函数名>\nresult = <函数名>(**参数)\nprint(json.dumps(result, ensure_ascii=False))\n\"\n\n可用函数：\n- list_candidates(only_unread=False, job_keyword='') — 列出聊天候选人\n- open_chat(name) — 打开与某人的聊天\n- get_chat_status() — 获取当前聊天状态\n- send_message(msg) — 发送消息\n- accept_resume() — 同意简历请求\n- download_resume(save_dir='~/Desktop/resume') — 下载简历\n- select_job(keyword='') — 选择职位\n- list_recommended() — 列出推荐候选人\n- greet(index) — 向第N个候选人打招呼\n- scroll_load_more() — 滚动加载更多\n- check_safety() — 检查是否有安全验证页面\n- wait() — 随机等待3-5秒",
+  "install": "需要 macOS + Google Chrome + cliclick (brew install cliclick)，需授予辅助功能权限"
+}
