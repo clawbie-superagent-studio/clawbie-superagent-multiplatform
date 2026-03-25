@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clawbie Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; padding: 24px; }
+  h1 { text-align: center; font-size: 28px; margin-bottom: 8px; color: #fff; }
+  .subtitle { text-align: center; color: #888; font-size: 14px; margin-bottom: 32px; }
+
+  /* Layout */
+  .canvas { max-width: 1500px; margin: 0 auto; position: relative; }
+  .main-layout { display: grid; grid-template-columns: 200px 1fr 180px; gap: 0; }
+  .memory-sidebar { position: relative; }
+  .main-content { }
+  .market-sidebar { padding-left: 24px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* Market sidebar bars */
+  .market-bar { border-radius: 12px; padding: 16px 14px; display: flex; flex-direction: column; gap: 8px; flex: 1; position: relative; }
+  .market-bar .bar-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .market-bar .bar-desc { font-size: 11px; color: #888; margin-bottom: 8px; }
+  .market-item { padding: 8px 10px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: default; transition: background 0.15s; position: relative; }
+  .market-item:hover { transform: translateY(-1px); }
+  .market-item .tip { display: none; position: absolute; right: calc(100% + 12px); top: 0; background: #1a1d28; border: 1px solid #333; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #ccc; white-space: nowrap; z-index: 100; font-weight: 400; }
+  .market-item:hover .tip { display: block; }
+
+  /* Memory sidebar */
+  .memory-bar { background: linear-gradient(180deg, #1a2218, #1a1d28, #1a2218); border: 2px solid #22c55e; border-radius: 12px; padding: 16px 14px; display: flex; flex-direction: column; gap: 0; height: 100%; position: relative; }
+  .memory-bar .box-title { color: #22c55e; font-size: 15px; margin-bottom: 8px; }
+  .memory-layer { padding: 10px; border-radius: 8px; background: #22c55e08; border: 1px solid #22c55e15; position: relative; cursor: default; transition: background 0.15s; }
+  .memory-layer:hover { background: #22c55e15; }
+  .memory-layer .layer-name { font-size: 13px; font-weight: 600; color: #66d98a; margin-bottom: 3px; }
+  .memory-layer .layer-desc { font-size: 11px; color: #888; line-height: 1.4; }
+  .memory-layer .layer-detail { display: none; position: absolute; left: calc(100% + 12px); top: 0; background: #1a1d28; border: 1px solid #333; border-radius: 8px; padding: 12px 16px; font-size: 12px; color: #ccc; width: 280px; z-index: 100; line-height: 1.6; }
+  .memory-layer:hover .layer-detail { display: block; }
+  .memory-layers { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .memory-flow { text-align: center; color: #22c55e44; font-size: 14px; padding: 2px 0; }
+
+  /* Arrow bridge between memory and clawbie */
+  .memory-bridge { position: absolute; right: -24px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; z-index: 10; }
+  .bridge-arrow { color: #22c55e88; font-size: 18px; }
+  .bridge-label { writing-mode: vertical-rl; font-size: 10px; color: #22c55e66; letter-spacing: 2px; }
+
+  /* Shared box styles */
+  .box { border-radius: 12px; padding: 16px; position: relative; }
+  .box-title { font-weight: 700; font-size: 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .box-title .icon { font-size: 20px; }
+  .box-desc { font-size: 12px; color: #999; margin-bottom: 12px; }
+
+  /* Tag pills */
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tag { padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: default; transition: transform 0.15s; position: relative; }
+  .tag:hover { transform: translateY(-2px); }
+  .tag .tip { display: none; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); background: #1a1d28; border: 1px solid #333; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #ccc; white-space: nowrap; z-index: 100; font-weight: 400; }
+  .tag:hover .tip { display: block; }
+
+  /* Clawbie core */
+  .clawbie-core { background: linear-gradient(135deg, #1a1d28, #1e2235); border: 2px solid #ff6b4a; margin-bottom: 20px; }
+  .clawbie-core .box-title { color: #ff6b4a; font-size: 20px; }
+  .clawbie-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+  .clone-badge { background: #ff6b4a22; border: 1px solid #ff6b4a66; color: #ff8a6a; padding: 6px 16px; border-radius: 20px; font-size: 13px; cursor: default; }
+  .clone-badge .tip { display: none; position: absolute; top: calc(100% + 8px); right: 0; background: #1a1d28; border: 1px solid #333; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #ccc; white-space: nowrap; z-index: 100; }
+  .clone-badge:hover .tip { display: block; }
+  .clone-badge { position: relative; }
+
+  .prompt-builder { background: #ffffff08; border: 1px solid #ffffff15; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; color: #aaa; display: flex; align-items: center; gap: 8px; }
+  .prompt-builder strong { color: #ddd; }
+
+  .c-tag { background: #ff6b4a18; border: 1px solid #ff6b4a33; color: #ff9a7a; }
+
+  /* Sub sections in rows */
+  .section-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .section-row.three { grid-template-columns: 1fr 1fr 1fr; }
+
+  /* Router */
+  .router-box { background: linear-gradient(135deg, #1a1d28, #1e2830); border: 2px solid #38bdf8; }
+  .router-box .box-title { color: #38bdf8; }
+  .r-tag { background: #38bdf818; border: 1px solid #38bdf833; color: #7dd3fc; }
+
+  /* Dispatcher */
+  .dispatcher { background: linear-gradient(135deg, #1a1d28, #1e2830); border: 2px solid #4ecdc4; }
+  .dispatcher .box-title { color: #4ecdc4; }
+  .d-tag { background: #4ecdc418; border: 1px solid #4ecdc433; color: #7eddd7; }
+
+  /* Execution layer */
+  .exec-box { background: linear-gradient(135deg, #1a1d28, #25202e); border: 2px solid #a78bfa; }
+  .exec-box .box-title { color: #a78bfa; }
+
+  /* Layer labels */
+  .layer-label { display: flex; align-items: center; gap: 10px; margin: 16px 0 8px 0; }
+  .layer-label .label-text { font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; white-space: nowrap; }
+  .layer-label .label-line { flex: 1; height: 1px; background: #333; }
+
+  /* Worker */
+  .worker-box { background: linear-gradient(135deg, #1a1d28, #25202e); border: 2px solid #a78bfa; }
+  .worker-box .box-title { color: #a78bfa; }
+  .w-tag { background: #a78bfa18; border: 1px solid #a78bfa33; color: #c4b1fa; }
+
+  /* Side panels */
+  .side-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 20px; }
+
+  /* Messages/Events */
+  .events-box { background: linear-gradient(135deg, #1a1d28, #282018); border: 2px solid #f59e0b; }
+  .events-box .box-title { color: #f59e0b; }
+  .e-tag { background: #f59e0b18; border: 1px solid #f59e0b33; color: #fbbf4e; }
+
+  /* Market */
+  .market-box { background: linear-gradient(135deg, #1a1d28, #1a2528); border: 2px solid #06b6d4; }
+  .market-box .box-title { color: #06b6d4; }
+  .m-tag { background: #06b6d418; border: 1px solid #06b6d433; color: #5cd8e8; }
+
+  /* Terminal */
+  .terminal-box { background: linear-gradient(135deg, #1a1d28, #202028); border: 2px solid #8b8b8b; }
+  .terminal-box .box-title { color: #ccc; }
+  .t-tag { background: #ffffff10; border: 1px solid #ffffff20; color: #bbb; }
+
+  /* Arrows */
+  .arrow-row { display: flex; justify-content: center; gap: 40px; margin: 12px 0; }
+  .arrow { display: flex; flex-direction: column; align-items: center; color: #555; font-size: 12px; }
+  .arrow svg { width: 24px; height: 32px; }
+  .arrow-label { margin-top: 2px; }
+
+  /* Connection lines */
+  .connections { display: flex; justify-content: center; gap: 80px; margin: 16px 0; position: relative; }
+  .conn-line { width: 2px; height: 24px; background: #444; position: relative; }
+  .conn-line::after { content: ''; position: absolute; bottom: -6px; left: -4px; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #444; }
+
+  .flow-arrows { display: flex; justify-content: center; margin: 16px 0; }
+  .flow-arrow { color: #555; font-size: 28px; line-height: 1; }
+
+  /* Bottom grid */
+  .bottom-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+
+  /* Legend */
+  .legend { margin-top: 32px; padding: 16px; background: #ffffff06; border: 1px solid #ffffff10; border-radius: 12px; }
+  .legend-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; color: #888; }
+  .legend-items { display: flex; flex-wrap: wrap; gap: 16px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #aaa; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 4px; }
+
+  /* Responsive */
+  @media (max-width: 800px) {
+    .section-row, .section-row.three, .side-grid, .bottom-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Clawbie Opensource Architecture</h1>
+<p class="subtitle">AI Workforce Orchestrator &mdash; Draft v0.1</p>
+
+<div class="canvas">
+
+<div class="main-layout">
+
+  <!-- ====== LEFT: Memory Sidebar ====== -->
+  <div class="memory-sidebar" style="padding-right: 24px;">
+    <div class="memory-bar">
+      <div class="box-title"><span class="icon" style="font-size:18px;">🧠</span> 记忆系统</div>
+      <div style="font-size: 11px; color: #22c55e88; margin-bottom: 12px;">LLM 自管理<br>非工程方案</div>
+
+      <div class="memory-layers">
+
+        <!-- 基础层标题 -->
+        <div style="font-size: 10px; color: #22c55e55; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">记忆基础（原始素材）</div>
+
+        <div class="memory-layer">
+          <div class="layer-name">次核心记忆</div>
+          <div class="layer-desc">未提纯的重要信息</div>
+          <div class="layer-detail">
+            <b>sub_core.json</b><br><br>
+            与用户身份直接相关的<b>未经提纯</b>的原始信息：<br><br>
+            - 身份信息（名字、职业、公司）<br>
+            - 人际关系（家人、同事、合作方）<br>
+            - 偏好习惯（喜好、风格、工作方式）<br>
+            - 目标价值观<br><br>
+            <b>写入</b>：每次对话后 LLM 自动提取<br>
+            <b>特点</b>：数量多、有冗余、带权重衰减
+          </div>
+        </div>
+
+        <div class="memory-flow">+</div>
+
+        <div class="memory-layer">
+          <div class="layer-name">事实记忆</div>
+          <div class="layer-desc">琐碎的日常事件</div>
+          <div class="layer-detail">
+            <b>general.json</b><br><br>
+            日常交互中产生的<b>琐碎事件</b>：<br><br>
+            - 今天开了什么会<br>
+            - 某个任务的进展<br>
+            - 提到的某个事实/数据<br>
+            - 项目相关的零散信息<br><br>
+            <b>写入</b>：每次对话后 LLM 自动提取<br>
+            <b>特点</b>：量大、时效性强、衰减快
+          </div>
+        </div>
+
+        <div class="memory-flow">↓ 每 2h 提纯</div>
+
+        <!-- 提纯层标题 -->
+        <div style="font-size: 10px; color: #22c55e55; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">核心记忆（提纯结果）</div>
+
+        <div class="memory-layer" style="border-color: #22c55e44; background: #22c55e12;">
+          <div class="layer-name" style="color: #4ade80;">核心记忆</div>
+          <div class="layer-desc">LLM 蒸馏的浓缩画像</div>
+          <div class="layer-detail">
+            <b>core_summary.md</b><br><br>
+            两部分，分别从两个基础记忆提纯：<br><br>
+            <b>① 主人档案</b> ← 次核心记忆<br>
+            提纯用户的身份、关系、偏好等<br>
+            稳定、变化慢<br><br>
+            <b>② 近期关注</b> ← 事实记忆<br>
+            提纯用户近期在忙什么、关注什么<br>
+            动态、更新快<br><br>
+            <b>更新频率</b>：每 2 小时 LLM 重新蒸馏<br>
+            <b>始终注入 Clawbie prompt</b>
+          </div>
+        </div>
+
+        <div style="height: 12px;"></div>
+
+        <!-- 上下文层标题 -->
+        <div style="font-size: 10px; color: #22c55e55; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">上下文窗口（独立模块）</div>
+
+        <div class="memory-layer">
+          <div class="layer-name">滑动窗口</div>
+          <div class="layer-desc">最近 50 轮对话</div>
+          <div class="layer-detail">
+            保留最近 <b>50 轮</b>对话的完整消息<br><br>
+            超出窗口的消息不再保留原文<br>
+            而是被压缩进下方的滚动摘要<br><br>
+            这是 LLM 的"短期工作记忆"
+          </div>
+        </div>
+
+        <div class="memory-flow">溢出 →</div>
+
+        <div class="memory-layer">
+          <div class="layer-name">滚动摘要</div>
+          <div class="layer-desc">近 5 个窗口的压缩</div>
+          <div class="layer-detail">
+            <b>summaries.json</b><br><br>
+            每当滑动窗口溢出时<br>
+            LLM 将溢出部分增量压缩为摘要<br><br>
+            <b>保留</b>：最近 5 个窗口的摘要<br>
+            <b>方式</b>：滚动压缩，带上之前摘要<br><br>
+            保证长对话不丢失关键上下文
+          </div>
+        </div>
+
+      </div>
+
+      <!-- afterChat pipeline -->
+      <div style="margin-top: 14px; padding: 10px; background: #22c55e10; border: 1px solid #22c55e20; border-radius: 8px;">
+        <div style="font-size: 11px; color: #22c55e88; font-weight: 600; margin-bottom: 6px;">afterChat 流水线</div>
+        <div style="font-size: 11px; color: #777; line-height: 1.6;">
+          1. extractAndStore → 提取到次核心/事实<br>
+          2. generateCore (每2h) → 提纯核心记忆<br>
+          3. maybeCompress → 窗口溢出时压缩摘要
+        </div>
+      </div>
+
+      <!-- Arrow bridge -->
+      <div class="memory-bridge">
+        <span class="bridge-arrow">→</span>
+        <span class="bridge-label">读 写</span>
+        <span class="bridge-arrow">←</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== RIGHT: Main Content (4 Layers) ====== -->
+  <div class="main-content">
+
+    <!-- ════════ LAYER 1: Input Sources ════════ -->
+    <div class="layer-label"><span class="label-text">Layer 1 — 输入层</span><div class="label-line"></div></div>
+
+    <div class="box events-box" style="margin-bottom: 0;">
+      <div class="box-title"><span class="icon">📡</span> 输入源 (Input Sources)</div>
+      <div class="box-desc">所有触发 Clawbie 工作的入口 — 消息从这里进入系统</div>
+      <div class="tags">
+        <span class="tag e-tag">
+          💬 客户端聊天框
+          <span class="tip">Tauri 桌面 App / Web UI / CLI<br>用户直接和 Clawbie 对话的主界面</span>
+        </span>
+        <span class="tag e-tag">
+          📱 三方社交软件
+          <span class="tip">微信 / Telegram / Discord / Slack 等<br>通过 Bridge 转发消息到 Clawbie</span>
+        </span>
+        <span class="tag e-tag">
+          🦞 Clawbie 自有 App
+          <span class="tip">Clawbie 独立开发的移动端/桌面端应用<br>深度集成，原生体验</span>
+        </span>
+        <span class="tag e-tag">
+          📡 感知设备
+          <span class="tip">摄像头 / IoT 传感器 / 无人机 / AR 眼镜等<br>设备主动上报事件（如检测到异常）<br>或定时采集数据推送给 Clawbie</span>
+        </span>
+        <span class="tag e-tag">
+          ⏰ 内部定时机制
+          <span class="tip">cron 定时任务 / 轮询检查 / 事件触发<br>包括设备的定时采集任务<br>无需用户干预，Clawbie 自主执行</span>
+        </span>
+      </div>
+    </div>
+
+    <div class="flow-arrows"><span class="flow-arrow">↓</span></div>
+
+    <!-- ════════ LAYER 2: Router ════════ -->
+    <div class="layer-label"><span class="label-text">Layer 2 — 分流层</span><div class="label-line"></div></div>
+
+    <div class="box router-box" style="margin-bottom: 0;">
+      <div class="box-title"><span class="icon">🔀</span> 分流器 (Router)</div>
+      <div class="box-desc">纯代码逻辑，零 token 消耗，毫秒级响应 — 决定"谁来处理这条消息"</div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <!-- Left: Queue -->
+        <div>
+          <div style="font-size: 12px; color: #38bdf888; font-weight: 600; margin-bottom: 8px;">消息队列 (按优先级排序)</div>
+          <div class="tags" style="flex-direction: column;">
+            <span class="tag r-tag" style="display: block;">
+              P0 用户直接对话
+              <span class="tip">最高优先级，要求即时响应感<br>来自客户端聊天框 / 自有 App</span>
+            </span>
+            <span class="tag r-tag" style="display: block;">
+              P1 Worker 求助
+              <span class="tip">员工卡住了，需要 Clawbie 决策<br>status = stuck，有 blocker.md</span>
+            </span>
+            <span class="tag r-tag" style="display: block;">
+              P2 Worker 完成通知
+              <span class="tip">员工完成任务，汇报结果<br>status = done，有 result.md</span>
+            </span>
+            <span class="tag r-tag" style="display: block;">
+              P3 社交软件消息
+              <span class="tip">来自 Telegram / 微信等 Bridge<br>优先级低于本地交互</span>
+            </span>
+            <span class="tag r-tag" style="display: block;">
+              P4 定时任务触发
+              <span class="tip">cron 到点 / 轮询有结果<br>最低优先级，可排队等待</span>
+            </span>
+          </div>
+        </div>
+        <!-- Right: Routing rules -->
+        <div>
+          <div style="font-size: 12px; color: #38bdf888; font-weight: 600; margin-bottom: 8px;">分流规则 (Rust 代码层)</div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="padding: 10px; background: #38bdf808; border: 1px solid #38bdf815; border-radius: 8px;">
+              <div style="font-size: 12px; color: #7dd3fc; font-weight: 600; margin-bottom: 4px;">Clawbie 空闲？</div>
+              <div style="font-size: 11px; color: #888;">→ 直接交给 Clawbie 处理</div>
+            </div>
+            <div style="padding: 10px; background: #38bdf808; border: 1px solid #38bdf815; border-radius: 8px;">
+              <div style="font-size: 12px; color: #7dd3fc; font-weight: 600; margin-bottom: 4px;">Clawbie 忙 + 消息紧急？</div>
+              <div style="font-size: 11px; color: #888;">→ 生成临时分身处理</div>
+            </div>
+            <div style="padding: 10px; background: #38bdf808; border: 1px solid #38bdf815; border-radius: 8px;">
+              <div style="font-size: 12px; color: #7dd3fc; font-weight: 600; margin-bottom: 4px;">Clawbie 忙 + 消息不急？</div>
+              <div style="font-size: 11px; color: #888;">→ 入队等待，按优先级排</div>
+            </div>
+            <div style="padding: 10px; background: #38bdf808; border: 1px solid #38bdf815; border-radius: 8px;">
+              <div style="font-size: 12px; color: #7dd3fc; font-weight: 600; margin-bottom: 4px;">已标记为定时/后台任务？</div>
+              <div style="font-size: 11px; color: #888;">→ 直接派给 Worker，不经 Clawbie</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flow-arrows"><span class="flow-arrow">↓</span></div>
+
+    <!-- ════════ LAYER 3: Clawbie Decision ════════ -->
+    <div class="layer-label"><span class="label-text">Layer 3 — 决策层 (AI)</span><div class="label-line"></div></div>
+
+    <div style="display: grid; grid-template-columns: 3fr 1fr; gap: 16px; margin-bottom: 0;">
+
+      <div class="box clawbie-core" style="margin-bottom: 0;">
+        <div class="box-title"><span class="icon">🦞</span> Clawbie (唯一主体)</div>
+        <div class="box-desc">AI 决策层 — 理解意图、判断复杂度、拆解任务、调度执行</div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="font-size: 12px; color: #ff6b4a99; font-weight: 600; margin-top: 4px;">Prompt 组成 (按顺序注入)</div>
+          <div class="tags">
+            <span class="tag c-tag">
+              🎭 系统人设
+              <span class="tip">identity.md — Clawbie 的身份、性格、工作原则<br>用户可自定义，永远是 prompt 的最高优先级</span>
+            </span>
+            <span class="tag c-tag">
+              🧠 核心记忆
+              <span class="tip">← 来自左侧"核心记忆"<br>主人档案 + 近期关注<br>始终注入，让 Clawbie 记住你</span>
+            </span>
+            <span class="tag c-tag">
+              🔍 临时检索记忆
+              <span class="tip">← 按需检索左侧 次核心 + 事实记忆<br>根据当前对话搜索相关片段注入</span>
+            </span>
+            <span class="tag c-tag">
+              📜 上下文窗口
+              <span class="tip">← 来自左侧"上下文窗口"模块<br>滑动窗口(50轮) + 滚动摘要(近5窗口)</span>
+            </span>
+          </div>
+          <div style="font-size: 12px; color: #ff6b4a99; font-weight: 600;">能力设定 (按需加载，不预装)</div>
+          <div class="tags">
+            <span class="tag c-tag">
+              🔧 核心系统工具
+              <span class="tip">仅包含最基础的工具：<br>file_manager / run_code / web_search / fetch_url / memory_search<br>保证 Clawbie 的基本工作能力</span>
+            </span>
+            <span class="tag c-tag">
+              📋 Tool 源描述
+              <span class="tip">告诉 Clawbie 去哪里找工具：<br>- 本地工具箱 / Composio 900+<br>- MCP 服务器 / GitHub 社区<br>只放索引摘要，不加载工具本身</span>
+            </span>
+            <span class="tag c-tag">
+              🛠️ tool_manager
+              <span class="tip">工具管理器：find / install / remove / organize</span>
+            </span>
+            <span class="tag c-tag">
+              📚 Skill 源描述
+              <span class="tip">已安装 Skill 的 id + name + 一句话描述<br>不加载完整 prompt，保持精简</span>
+            </span>
+            <span class="tag c-tag">
+              🎯 skill_manager
+              <span class="tip">技能管理器：find / install / remove / organize</span>
+            </span>
+          </div>
+          <div style="font-size: 12px; color: #ff6b4a99; font-weight: 600;">决策输出</div>
+          <div class="tags">
+            <span class="tag c-tag">
+              ✅ 自己干
+              <span class="tip">简单任务，Clawbie 直接用核心工具完成<br>如：回答问题、搜索、写文件、聊天</span>
+            </span>
+            <span class="tag c-tag">
+              📤 派给员工
+              <span class="tip">复杂/耗时任务，Clawbie 拆解后派给 Worker<br>可设置依赖关系，多 Worker 并行</span>
+            </span>
+            <span class="tag c-tag">
+              🌐 派给远程
+              <span class="tip">需要其他设备资源的任务<br>通过 HTTP API 发给局域网/远端 Agent</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Clone -->
+      <div class="box" style="background: linear-gradient(135deg, #1a1d28, #2a1f1f); border: 2px dashed #ff6b4a88; margin-bottom: 0; display: flex; flex-direction: column; justify-content: center;">
+        <div class="box-title" style="color: #ff8a6a; font-size: 15px;">👥 临时分身</div>
+        <div class="box-desc" style="margin-bottom: 12px;">Clawbie 的轻量副本</div>
+        <div class="tags" style="flex-direction: column;">
+          <span class="tag c-tag" style="text-align: center; display: block;">
+            📖 继承记忆(只读)
+            <span class="tip">读取 Clawbie 的记忆，但不写入<br>保证记忆源的唯一性</span>
+          </span>
+          <span class="tag c-tag" style="text-align: center; display: block;">
+            ⚡ 并行处理
+            <span class="tip">同时处理多个对话或任务<br>由分流器在 Clawbie 忙时自动生成</span>
+          </span>
+          <span class="tag c-tag" style="text-align: center; display: block;">
+            💨 用完即弃
+            <span class="tip">任务完成即销毁<br>不留长期记忆，不产生分裂</span>
+          </span>
+          <span class="tag c-tag" style="text-align: center; display: block;">
+            🔄 同样可决策
+            <span class="tip">分身也能决定"自己干"或"派员工"<br>具备完整的决策能力</span>
+          </span>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="flow-arrows"><span class="flow-arrow">↓</span></div>
+
+    <!-- ════════ LAYER 4: Execution ════════ -->
+    <div class="layer-label"><span class="label-text">Layer 4 — 执行层</span><div class="label-line"></div></div>
+
+    <!-- Row 1: Clawbie direct + Local workers -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+
+      <!-- Clawbie direct execution -->
+      <div class="box" style="background: linear-gradient(135deg, #1a1d28, #261e1e); border: 2px solid #ff6b4a88; margin-bottom: 0;">
+        <div class="box-title" style="color: #ff8a6a; font-size: 15px;"><span class="icon">🦞</span> Clawbie 直接执行</div>
+        <div class="box-desc">简单任务，Clawbie / 分身自己完成</div>
+        <div class="tags">
+          <span class="tag c-tag">
+            💬 对话回复
+            <span class="tip">直接回答用户问题<br>聊天、咨询、建议</span>
+          </span>
+          <span class="tag c-tag">
+            🔍 搜索查询
+            <span class="tip">用 web_search / fetch_url 查资料</span>
+          </span>
+          <span class="tag c-tag">
+            📝 文件操作
+            <span class="tip">用 file_manager 读写文件</span>
+          </span>
+          <span class="tag c-tag">
+            💻 执行代码
+            <span class="tip">用 run_code 跑脚本</span>
+          </span>
+          <span class="tag c-tag">
+            🛠️ 工具/技能管理
+            <span class="tip">用 tool_manager / skill_manager<br>安装、整理、删除</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Local Worker execution -->
+      <div class="box exec-box" style="margin-bottom: 0;">
+        <div class="box-title"><span class="icon">🤖</span> 本地员工</div>
+        <div class="box-desc">本机上运行的 AI 员工，处理复杂/耗时任务</div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <div style="font-size: 12px; color: #a78bfa88; font-weight: 600;">每个员工拥有：</div>
+          <div class="tags">
+            <span class="tag w-tag">
+              📝 任务上下文
+              <span class="tip">task.md / standup.md / result.md</span>
+            </span>
+            <span class="tag w-tag">
+              🔧 基础工具
+              <span class="tip">文件读写、代码执行</span>
+            </span>
+            <span class="tag w-tag">
+              👀 观察能力
+              <span class="tip">读取依赖任务的 result.md</span>
+            </span>
+            <span class="tag w-tag">
+              📡 监听/汇报
+              <span class="tip">完成/卡住时通知回分流器</span>
+            </span>
+          </div>
+          <div style="font-size: 12px; color: #a78bfa88; font-weight: 600;">可选配置：</div>
+          <div class="tags">
+            <span class="tag w-tag">
+              ⚡ 专属 Skill
+              <span class="tip">加载特定领域 system prompt</span>
+            </span>
+            <span class="tag w-tag">
+              🛠️ 垂直工具
+              <span class="tip">配置特定 Toolkit</span>
+            </span>
+            <span class="tag w-tag">
+              🧠 Brain 选择
+              <span class="tip">不同员工可用不同模型</span>
+            </span>
+          </div>
+          <div style="font-size: 12px; color: #a78bfa88; font-weight: 600;">员工类型：</div>
+          <div class="tags">
+            <span class="tag w-tag">
+              👤 临时员工
+              <span class="tip">一次性任务，完成即销毁</span>
+            </span>
+            <span class="tag w-tag">
+              👨‍💼 长期员工
+              <span class="tip">预设专职 Agent，随时待命</span>
+            </span>
+            <span class="tag w-tag">
+              🔄 任务依赖
+              <span class="tip">Task B depends_on Task A</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Row 2: Device Network -->
+    <div class="box" style="background: linear-gradient(135deg, #1a1d28, #1a2028); border: 2px solid #818cf8; margin-bottom: 20px;">
+      <div class="box-title" style="color: #818cf8;"><span class="icon">🌐</span> 设备网络 (Device Network)</div>
+      <div class="box-desc">Clawbie 可控制的远端设备拓扑 — 每个节点是一个可调度的端点</div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px;">
+
+        <!-- Computing devices -->
+        <div style="padding: 12px; background: #818cf808; border: 1px solid #818cf815; border-radius: 8px;">
+          <div style="font-size: 13px; color: #a5b4fc; font-weight: 600; margin-bottom: 8px;">💻 计算设备</div>
+          <div style="font-size: 11px; color: #888; line-height: 1.8;">
+            远程电脑 (可跑 Agent)<br>
+            云服务器<br>
+            树莓派 / NAS<br>
+            其他 Clawbie 实例
+          </div>
+        </div>
+
+        <!-- Camera / Visual -->
+        <div style="padding: 12px; background: #818cf808; border: 1px solid #818cf815; border-radius: 8px;">
+          <div style="font-size: 13px; color: #a5b4fc; font-weight: 600; margin-bottom: 8px;">📷 视觉设备</div>
+          <div style="font-size: 11px; color: #888; line-height: 1.8;">
+            摄像头 / 监控<br>
+            无人机航拍<br>
+            AR/VR 眼镜<br>
+            扫描仪
+          </div>
+        </div>
+
+        <!-- IoT -->
+        <div style="padding: 12px; background: #818cf808; border: 1px solid #818cf815; border-radius: 8px;">
+          <div style="font-size: 13px; color: #a5b4fc; font-weight: 600; margin-bottom: 8px;">📡 IoT 设备</div>
+          <div style="font-size: 11px; color: #888; line-height: 1.8;">
+            温湿度传感器<br>
+            智能开关 / 灯<br>
+            门锁 / 报警器<br>
+            机械臂 / 机器人
+          </div>
+        </div>
+
+        <!-- Mobile / Wearable -->
+        <div style="padding: 12px; background: #818cf808; border: 1px solid #818cf815; border-radius: 8px;">
+          <div style="font-size: 13px; color: #a5b4fc; font-weight: 600; margin-bottom: 8px;">📱 移动/穿戴</div>
+          <div style="font-size: 11px; color: #888; line-height: 1.8;">
+            手机 App<br>
+            智能手表<br>
+            无人机控制器<br>
+            车载终端
+          </div>
+        </div>
+
+      </div>
+
+      <div style="margin-top: 12px; padding: 10px; background: #818cf808; border: 1px solid #818cf815; border-radius: 8px; display: flex; gap: 16px; align-items: center;">
+        <div style="font-size: 12px; color: #a5b4fc; font-weight: 600; white-space: nowrap;">设备协议</div>
+        <div style="font-size: 11px; color: #888;">每个设备 = 一个 toolkit（manifest.json 描述能力） | 通过 HTTP API / MCP / MQTT 连接 | Clawbie 看到拓扑图：设备名、状态(在线/离线)、能力列表</div>
+      </div>
+    </div>
+
+  </div><!-- /main-content -->
+
+  <!-- ====== RIGHT: Market Sidebars ====== -->
+  <div class="market-sidebar">
+
+    <!-- Tool Market -->
+    <div class="market-bar" style="background: linear-gradient(180deg, #1a2528, #1a1d28, #1a2528); border: 2px solid #06b6d4;">
+      <div class="bar-title" style="color: #06b6d4;"><span style="font-size:16px;">🏪</span> 工具市场</div>
+      <div class="bar-desc">发现、安装、创建工具</div>
+
+      <div class="market-item" style="background: #06b6d408; border: 1px solid #06b6d415; color: #5cd8e8;">
+        📦 内置工具
+        <span class="tip">web-search, file-manager,<br>run-code, fetch-url 等基础工具</span>
+      </div>
+      <div class="market-item" style="background: #06b6d408; border: 1px solid #06b6d415; color: #5cd8e8;">
+        🌐 GitHub 安装
+        <span class="tip">clawbie toolkit install user/repo<br>从 GitHub 下载社区工具</span>
+      </div>
+      <div class="market-item" style="background: #06b6d408; border: 1px solid #06b6d415; color: #5cd8e8;">
+        🔌 MCP 服务器
+        <span class="tip">连接 MCP 生态的工具服务器<br>数百个现成的工具可用</span>
+      </div>
+      <div class="market-item" style="background: #06b6d408; border: 1px solid #06b6d415; color: #5cd8e8;">
+        🔗 Composio
+        <span class="tip">900+ SaaS 集成<br>Gmail / Slack / GitHub / Notion...</span>
+      </div>
+      <div class="market-item" style="background: #06b6d408; border: 1px solid #06b6d415; color: #5cd8e8;">
+        🤖 AI 创建
+        <span class="tip">告诉 Clawbie 你需要什么工具<br>自动生成 manifest.json + 脚本</span>
+      </div>
+    </div>
+
+    <!-- Skill Market -->
+    <div class="market-bar" style="background: linear-gradient(180deg, #1e1a28, #1a1d28, #1e1a28); border: 2px solid #8b5cf6;">
+      <div class="bar-title" style="color: #8b5cf6;"><span style="font-size:16px;">📚</span> Skill 市场</div>
+      <div class="bar-desc">领域知识包，改变思考方式</div>
+
+      <div class="market-item" style="background: #8b5cf608; border: 1px solid #8b5cf615; color: #b89afc;">
+        📋 社区 Skill
+        <span class="tip">从 ClawHub 下载<br>社区分享的 Skill</span>
+      </div>
+      <div class="market-item" style="background: #8b5cf608; border: 1px solid #8b5cf615; color: #b89afc;">
+        🤖 AI 生成
+        <span class="tip">Clawbie 从对话中学习<br>自动提炼保存为 Skill</span>
+      </div>
+      <div class="market-item" style="background: #8b5cf608; border: 1px solid #8b5cf615; color: #b89afc;">
+        📤 分享发布
+        <span class="tip">把自己的 Skill<br>发布到社区市场</span>
+      </div>
+      <div class="market-item" style="background: #8b5cf608; border: 1px solid #8b5cf615; color: #b89afc;">
+        🌐 GitHub 安装
+        <span class="tip">从 GitHub 仓库<br>安装 Skill 包</span>
+      </div>
+    </div>
+
+  </div><!-- /market-sidebar -->
+
+</div><!-- /main-layout -->
+
+  <!-- ====== Legend ====== -->
+  <div class="legend">
+    <div class="legend-title">图例</div>
+    <div class="legend-items">
+      <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div> L1 输入层 (触发入口)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#38bdf8;"></div> L2 分流层 (队列+路由)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#ff6b4a;"></div> L3 决策层 (Clawbie AI)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#a78bfa;"></div> L4 执行层 (直接+员工)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#22c55e;"></div> 记忆系统 (贯穿全局)</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#06b6d4;"></div> 市场 (工具/技能生态)</div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

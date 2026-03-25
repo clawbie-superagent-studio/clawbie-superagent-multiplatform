@@ -579,7 +579,7 @@ function ToolkitPanel({ toolkit }: { toolkit: Toolkit }) {
           )}
 
           <div className="toolkit-path">
-            ~/.claude-manager/toolkits/{toolkit.id}/
+            ~/.clawbie/toolkits/{toolkit.id}/
           </div>
         </div>
       </div>

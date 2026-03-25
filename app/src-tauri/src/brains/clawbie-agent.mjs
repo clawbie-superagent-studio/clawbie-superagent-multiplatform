@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { execSync } from "child_process";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { createProvider } from "./providers.mjs";
 
 // ── stdin ────────────────────────────────────────────────────────────
 const chunks = [];
@@ -20,73 +21,46 @@ try {
 }
 
 // ── config ───────────────────────────────────────────────────────────
-const __dirname = dirname(fileURLToPath(import.meta.url));
-let config = {};
-try { config = JSON.parse(readFileSync(join(__dirname, "config.json"), "utf8")); } catch {}
+const home = process.env.HOME || "";
+const baseDir = join(home, ".clawbie");
+const configPath = join(baseDir, "config.json");
 
-const API_KEY = config.api_key || process.env.OPENROUTER_API_KEY || "";
-const MODEL = config.model || "google/gemini-2.5-flash";
+let config = {};
+try { config = JSON.parse(readFileSync(configPath, "utf8")); } catch {}
+
+const provider = createProvider(config);
 
 function emit(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
 
-if (!API_KEY) {
-  emit({ type: "result", subtype: "error", is_error: true, result: "请先在设置中配置 OpenRouter API Key" });
+if (!config.api_key && !process.env.ANTHROPIC_API_KEY && !process.env.OPENROUTER_API_KEY) {
+  emit({ type: "result", subtype: "error", is_error: true, result: "请先在设置中配置 API Key" });
   process.exit(1);
 }
 
-// ── system prompt ────────────────────────────────────────────────────
-const SYSTEM = `# 身份
-你是一个专注的任务执行者。你独立工作，自主完成分配的任务。
+// ── system prompt（从文件拼接）────────────────────────────────────────
+const promptsDir = join(baseDir, "clawbie", "prompts");
 
-# 使用工具
-你有 8 个工具可用。必须严格遵守工具选择优先级：
+function readPrompt(filename) {
+  const path = join(promptsDir, filename);
+  if (existsSync(path)) return readFileSync(path, "utf8").trim();
+  return "";
+}
 
-【关键规则】不要用 bash 执行能用专用工具完成的操作：
-- 读文件 → 用 read_file，不要用 cat/head/tail
-- 写文件 → 用 write_file，不要用 echo/cat heredoc
-- 编辑文件 → 用 edit_file，不要用 sed/awk
-- 查找文件 → 用 glob，不要用 find/ls
-- 搜索内容 → 用 grep，不要用 grep/rg 命令
-- 抓取网页 → 用 web_fetch，不要用 curl
-- 搜索信息 → 用 web_search
-- bash 只用于：git、npm、运行脚本、系统命令等真正需要 shell 的操作
+const promptParts = [
+  readPrompt("identity.md"),
+  readPrompt("personality.md"),
+];
 
-## 工具说明
-- read_file：读文件（带行号），支持 offset/limit 读取大文件指定部分
-- write_file：创建或覆盖文件，自动建目录。仅用于新建或完全重写
-- edit_file：精确字符串替换，old_string 必须唯一。修改文件优先用此工具
-- glob：按模式查找文件（如 "**/*.ts"），自动排除 node_modules/.git
-- grep：正则搜索文件内容，支持 context/glob/output_mode(content/files/count)
-- web_fetch：抓取 URL 内容，自动清理 HTML。用于读文档、查 API
-- web_search：搜索引擎查询，返回标题+URL+摘要。用于查找方案、搜索文档
-- bash：执行 shell 命令，超时 120 秒。避免破坏性操作
+// 非 Anthropic 直连时需要工具描述（Anthropic 用 tool schema 传递）
+if (config.provider !== "anthropic") {
+  promptParts.push(readPrompt("tools_description.md"));
+}
 
-# 工作原则
-- 先理解现有代码再修改
-- 优先编辑已有文件，不要随意创建新文件
-- 不要过度工程化
-- 注意代码安全
+promptParts.push(readPrompt("toolkit_guide.md"));
 
-# 任务执行
-请用 read_file 读取当前目录的 task.md，然后执行任务。
+// TODO: 记忆注入（下一步）
 
-执行规范（必须遵守）：
-1. 每完成一个阶段，用 write_file 覆盖写入 standup.md，固定格式：
-   已完成：[做了什么]
-   正在做：[当前步骤]
-   下一步：[计划]
-
-2. 每一步用 bash 追加一行到 full-log.md（格式：[时间] 简短描述）
-
-3. 任务完成时：
-   - 用 write_file 把最终结果写入 result.md
-   - 用 write_file 把 status.txt 内容改为：done
-
-4. 遇到无法解决的问题时：
-   - 用 write_file 把 status.txt 内容改为：stuck
-   - 用 write_file 把卡住原因和已尝试的方法写入 blocker.md
-
-现在开始。`;
+const SYSTEM = promptParts.filter(Boolean).join("\n\n");
 
 // ── tools ────────────────────────────────────────────────────────────
 const TOOLS = [
@@ -94,7 +68,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "bash",
-      description: "Execute a shell command. Only use for operations that other tools cannot do: git, npm, running scripts, system commands. Do NOT use for file reading, file searching, or web requests.",
+      description: "Execute a shell command. Only use for operations that other tools cannot do.",
       parameters: {
         type: "object",
         properties: {
@@ -113,7 +87,7 @@ const TOOLS = [
         type: "object",
         properties: {
           path: { type: "string", description: "Absolute path to the file" },
-          offset: { type: "integer", description: "Starting line number (1-based, default 1)" },
+          offset: { type: "integer", description: "Starting line number (1-based)" },
           limit: { type: "integer", description: "Max lines to read (default 2000)" },
         },
         required: ["path"],
@@ -139,7 +113,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "edit_file",
-      description: "Replace a string in a file. Set replace_all to true to replace all occurrences.",
+      description: "Replace a unique string in a file. Use replace_all for multiple occurrences.",
       parameters: {
         type: "object",
         properties: {
@@ -156,12 +130,12 @@ const TOOLS = [
     type: "function",
     function: {
       name: "glob",
-      description: "Find files by glob pattern (e.g. '**/*.ts', 'src/**/*.jsx'). Returns matching file paths sorted by modification time.",
+      description: "Find files by glob pattern. Returns paths sorted by modification time.",
       parameters: {
         type: "object",
         properties: {
-          pattern: { type: "string", description: "Glob pattern to match files" },
-          path: { type: "string", description: "Directory to search in (default: cwd)" },
+          pattern: { type: "string", description: "Glob pattern (e.g. '**/*.ts')" },
+          path: { type: "string", description: "Directory to search in" },
         },
         required: ["pattern"],
       },
@@ -171,17 +145,17 @@ const TOOLS = [
     type: "function",
     function: {
       name: "grep",
-      description: "Search file contents using regex. Returns matching lines with file paths and line numbers.",
+      description: "Search file contents using regex.",
       parameters: {
         type: "object",
         properties: {
           pattern: { type: "string", description: "Regex pattern to search for" },
-          path: { type: "string", description: "File or directory to search in (default: cwd)" },
+          path: { type: "string", description: "File or directory to search in" },
           glob: { type: "string", description: "Glob to filter files (e.g. '*.js')" },
           case_insensitive: { type: "boolean", description: "Case insensitive search" },
-          context: { type: "integer", description: "Context lines before and after each match" },
-          output_mode: { type: "string", description: "'content' (default), 'files', or 'count'" },
-          max_results: { type: "integer", description: "Limit results (default: 100)" },
+          context: { type: "integer", description: "Context lines around each match" },
+          output_mode: { type: "string", description: "'content' | 'files' | 'count'" },
+          max_results: { type: "integer", description: "Limit number of results" },
         },
         required: ["pattern"],
       },
@@ -191,7 +165,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "web_fetch",
-      description: "Fetch the content of a URL and return it as text.",
+      description: "Fetch URL content and return as text.",
       parameters: {
         type: "object",
         properties: {
@@ -206,7 +180,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "web_search",
-      description: "Search the web. Returns results with titles, URLs, and snippets.",
+      description: "Search the web. Returns titles, URLs, and snippets.",
       parameters: {
         type: "object",
         properties: {
@@ -226,16 +200,11 @@ async function executeTool(name, args) {
       case "bash": {
         try {
           const out = execSync(args.command, {
-            encoding: "utf8",
-            timeout: 120000,
-            maxBuffer: 10 * 1024 * 1024,
-            cwd: process.cwd(),
+            encoding: "utf8", timeout: 120000, maxBuffer: 10 * 1024 * 1024, cwd: process.cwd(),
           });
           return out || "(no output)";
         } catch (e) {
-          const stderr = e.stderr ? e.stderr.toString() : "";
-          const stdout = e.stdout ? e.stdout.toString() : "";
-          return `Exit code ${e.status ?? 1}\n${stdout}\n${stderr}`.trim();
+          return `Exit code ${e.status ?? 1}\n${e.stdout || ""}\n${e.stderr || ""}`.trim();
         }
       }
       case "read_file": {
@@ -243,10 +212,7 @@ async function executeTool(name, args) {
         const lines = content.split("\n");
         const offset = Math.max(0, (args.offset || 1) - 1);
         const limit = args.limit || 2000;
-        return lines
-          .slice(offset, offset + limit)
-          .map((l, i) => `${String(offset + i + 1).padStart(6)}\t${l}`)
-          .join("\n");
+        return lines.slice(offset, offset + limit).map((l, i) => `${String(offset + i + 1).padStart(6)}\t${l}`).join("\n");
       }
       case "write_file": {
         mkdirSync(dirname(args.path), { recursive: true });
@@ -261,14 +227,13 @@ async function executeTool(name, args) {
           writeFileSync(args.path, content.replaceAll(args.old_string, args.new_string));
           return `Replaced ${count} occurrences in ${args.path}`;
         }
-        if (count > 1) return `Error: old_string found ${count} times, must be unique. Use replace_all to replace all.`;
+        if (count > 1) return `Error: old_string found ${count} times, must be unique.`;
         writeFileSync(args.path, content.replace(args.old_string, args.new_string));
         return `Edited ${args.path}`;
       }
       case "glob": {
         const dir = args.path || process.cwd();
         const pattern = args.pattern;
-
         let cmd = `find "${dir}" -type f`;
         if (pattern.includes("/")) {
           const findPattern = "*/" + pattern.replace(/\*\*\//g, "");
@@ -278,21 +243,16 @@ async function executeTool(name, args) {
         }
         cmd += ` ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/target/*" ! -path "*/.next/*"`;
         cmd += ` -print 2>/dev/null | head -200 | while read f; do echo "$(stat -f '%m' "$f" 2>/dev/null || echo 0) $f"; done | sort -rn | cut -d' ' -f2-`;
-
         try {
           const out = execSync(cmd, { encoding: "utf8", timeout: 15000, cwd: dir });
           const files = out.trim().split("\n").filter(Boolean);
-          if (files.length === 0) return `No files matching "${pattern}" in ${dir}`;
-          return files.join("\n");
-        } catch {
-          return `No files matching "${pattern}" in ${dir}`;
-        }
+          return files.length ? files.join("\n") : `No files matching "${pattern}" in ${dir}`;
+        } catch { return `No files matching "${pattern}" in ${dir}`; }
       }
       case "grep": {
         const dir = args.path || process.cwd();
         const max = args.max_results || 100;
         const mode = args.output_mode || "content";
-
         let cmd = `rg`;
         if (args.case_insensitive) cmd += ` -i`;
         if (args.context) cmd += ` -C ${args.context}`;
@@ -301,14 +261,10 @@ async function executeTool(name, args) {
         else cmd += ` -n`;
         if (args.glob) cmd += ` --glob "${args.glob}"`;
         cmd += ` --max-count 1000 --no-heading`;
-        cmd += ` -- "${args.pattern.replace(/"/g, '\\"')}" "${dir}"`;
-        cmd += ` 2>/dev/null | head -${max}`;
-
+        cmd += ` -- "${args.pattern.replace(/"/g, '\\"')}" "${dir}" 2>/dev/null | head -${max}`;
         try {
           let out;
-          try {
-            out = execSync(cmd, { encoding: "utf8", timeout: 30000 });
-          } catch {
+          try { out = execSync(cmd, { encoding: "utf8", timeout: 30000 }); } catch {
             let grepCmd = `grep -r`;
             if (args.case_insensitive) grepCmd += ` -i`;
             if (args.context) grepCmd += ` -C ${args.context}`;
@@ -316,55 +272,35 @@ async function executeTool(name, args) {
             else if (mode === "count") grepCmd += ` -c`;
             else grepCmd += ` -n`;
             if (args.glob) grepCmd += ` --include="${args.glob}"`;
-            grepCmd += ` -- "${args.pattern.replace(/"/g, '\\"')}" "${dir}"`;
-            grepCmd += ` 2>/dev/null | head -${max}`;
+            grepCmd += ` -- "${args.pattern.replace(/"/g, '\\"')}" "${dir}" 2>/dev/null | head -${max}`;
             out = execSync(grepCmd, { encoding: "utf8", timeout: 30000 });
           }
           return out.trim() || "No matches found";
-        } catch {
-          return "No matches found";
-        }
+        } catch { return "No matches found"; }
       }
       case "web_fetch": {
         const maxLen = args.max_length || 50000;
         try {
           const res = await fetch(args.url, {
-            headers: { "User-Agent": "Clawbie/1.0" },
-            redirect: "follow",
-            signal: AbortSignal.timeout(30000),
+            headers: { "User-Agent": "Clawbie/1.0" }, redirect: "follow", signal: AbortSignal.timeout(30000),
           });
           if (!res.ok) return `HTTP ${res.status}: ${res.statusText}`;
           const contentType = res.headers.get("content-type") || "";
           let text;
           if (contentType.includes("html")) {
             const html = await res.text();
-            text = html
-              .replace(/<script[\s\S]*?<\/script>/gi, "")
-              .replace(/<style[\s\S]*?<\/style>/gi, "")
-              .replace(/<[^>]+>/g, " ")
-              .replace(/&nbsp;/g, " ")
-              .replace(/&amp;/g, "&")
-              .replace(/&lt;/g, "<")
-              .replace(/&gt;/g, ">")
-              .replace(/&quot;/g, '"')
-              .replace(/\s+/g, " ")
-              .trim();
-          } else {
-            text = await res.text();
-          }
-          if (text.length > maxLen) {
-            return text.substring(0, maxLen) + `\n\n... (truncated, ${text.length} total chars)`;
-          }
-          return text || "(empty response)";
-        } catch (e) {
-          return `Error fetching ${args.url}: ${e.message}`;
-        }
+            text = html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "")
+              .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&")
+              .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+              .replace(/\s+/g, " ").trim();
+          } else { text = await res.text(); }
+          return text.length > maxLen ? text.substring(0, maxLen) + `\n... (truncated)` : text || "(empty)";
+        } catch (e) { return `Error: ${e.message}`; }
       }
       case "web_search": {
         const max = args.max_results || 10;
-        const query = args.query;
         try {
-          const encoded = encodeURIComponent(query);
+          const encoded = encodeURIComponent(args.query);
           const res = await fetch(`https://lite.duckduckgo.com/lite/?q=${encoded}`, {
             headers: { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" },
             signal: AbortSignal.timeout(15000),
@@ -379,31 +315,25 @@ async function executeTool(name, args) {
             const snippet = match[3].replace(/<[^>]+>/g, "").trim();
             if (title) results.push({ title, url, snippet });
           }
-          if (results.length === 0) return `No search results for "${query}"`;
+          if (!results.length) return `No results for "${args.query}"`;
           return results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n\n");
-        } catch (e) {
-          return `Search error: ${e.message}`;
-        }
+        } catch (e) { return `Search error: ${e.message}`; }
       }
-      default:
-        return `Unknown tool: ${name}`;
+      default: return `Unknown tool: ${name}`;
     }
-  } catch (e) {
-    return `Error: ${e.message}`;
-  }
+  } catch (e) { return `Error: ${e.message}`; }
 }
 
 // ── context window management ────────────────────────────────────────
 const MODEL_LIMITS = {
-  "google/gemini-2.5-pro": 1000000,
-  "google/gemini-2.5-flash": 1000000,
-  "anthropic/claude-sonnet-4": 200000,
-  "anthropic/claude-opus-4": 200000,
-  "openai/gpt-4.1": 1000000,
-  "openai/o3": 200000,
+  "claude-sonnet-4-6": 200000, "claude-opus-4-6": 200000, "claude-haiku-4-5": 200000,
+  "google/gemini-2.5-pro": 1000000, "google/gemini-2.5-flash": 1000000,
+  "anthropic/claude-sonnet-4": 200000, "anthropic/claude-opus-4": 200000,
+  "openai/gpt-4.1": 1000000, "openai/o3": 200000,
   "deepseek/deepseek-r1": 64000,
 };
-const CONTEXT_LIMIT = MODEL_LIMITS[MODEL] || 128000;
+const modelId = config.model || "claude-sonnet-4-6";
+const CONTEXT_LIMIT = MODEL_LIMITS[modelId] || 128000;
 const COMPRESS_THRESHOLD = Math.floor(CONTEXT_LIMIT * 0.70);
 const KEEP_RECENT_TURNS = 3;
 
@@ -419,12 +349,8 @@ function groupIntoTurns(msgs) {
   const turns = [];
   let current = [];
   for (const m of msgs) {
-    if (m.role === "user" && current.length > 0) {
-      turns.push(current);
-      current = [m];
-    } else {
-      current.push(m);
-    }
+    if (m.role === "user" && current.length > 0) { turns.push(current); current = [m]; }
+    else { current.push(m); }
   }
   if (current.length > 0) turns.push(current);
   return turns;
@@ -432,64 +358,37 @@ function groupIntoTurns(msgs) {
 
 function compressMessages(msgs) {
   if (estimateTokens(msgs) <= COMPRESS_THRESHOLD) return msgs;
-
-  const system = msgs[0];
+  const first = msgs[0];
   const rest = msgs.slice(1);
   const turns = groupIntoTurns(rest);
-
-  if (turns.length <= KEEP_RECENT_TURNS) {
-    return [system, ...turns.flat().map(truncateMessage)];
-  }
-
+  if (turns.length <= KEEP_RECENT_TURNS) return [first, ...turns.flat().map(truncateMessage)];
   const recentTurns = turns.slice(-KEEP_RECENT_TURNS);
   const oldTurns = turns.slice(0, -KEEP_RECENT_TURNS);
-
   const summaryLines = oldTurns.map((turn) => {
     const parts = [];
     for (const m of turn) {
-      if (m.role === "user") {
-        const text = typeof m.content === "string" ? m.content : "";
-        parts.push(`用户: ${text.substring(0, 100)}`);
-      } else if (m.role === "assistant") {
-        if (m.tool_calls) {
-          const names = m.tool_calls.map((tc) => tc.function.name).join(", ");
-          parts.push(`调用: ${names}`);
-        }
-        if (m.content) {
-          parts.push(`回复: ${m.content.substring(0, 200)}`);
-        }
+      if (m.role === "user") parts.push(`用户: ${(typeof m.content === "string" ? m.content : "").substring(0, 100)}`);
+      else if (m.role === "assistant") {
+        if (m.tool_calls) parts.push(`调用: ${m.tool_calls.map((tc) => tc.function.name).join(", ")}`);
+        if (m.content) parts.push(`回复: ${m.content.substring(0, 200)}`);
       }
     }
     return parts.join(" → ");
   });
-
-  const summaryMsg = {
-    role: "user",
-    content: `[以下是之前对话的压缩摘要，共 ${oldTurns.length} 轮]\n${summaryLines.join("\n")}\n[摘要结束]`,
-  };
-
-  let result = [system, summaryMsg, ...recentTurns.flat()];
-
-  if (estimateTokens(result) > COMPRESS_THRESHOLD) {
-    result = result.map(truncateMessage);
-  }
-
-  while (estimateTokens(result) > COMPRESS_THRESHOLD && result.length > 4) {
-    result.splice(2, 1);
-  }
-
+  const summaryMsg = { role: "user", content: `[对话压缩摘要，共 ${oldTurns.length} 轮]\n${summaryLines.join("\n")}\n[摘要结束]` };
+  let result = [first, summaryMsg, ...recentTurns.flat()];
+  if (estimateTokens(result) > COMPRESS_THRESHOLD) result = result.map(truncateMessage);
+  while (estimateTokens(result) > COMPRESS_THRESHOLD && result.length > 4) result.splice(2, 1);
   return result;
 }
 
 function truncateMessage(m) {
   if (m.role === "tool") {
     const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-    if (content.length > 1000) {
-      return { ...m, content: content.substring(0, 1000) + "\n... [输出已截断]" };
-    }
+    if (content.length > 1000) return { ...m, content: content.substring(0, 1000) + "\n... [截断]" };
   }
   if (m.role === "assistant" && m.content && m.content.length > 2000) {
-    return { ...m, content: m.content.substring(0, 2000) + "\n... [已截断]" };
+    return { ...m, content: m.content.substring(0, 2000) + "\n... [截断]" };
   }
   return m;
 }
@@ -499,9 +398,7 @@ const messagesFile = join(process.cwd(), ".agent-messages.json");
 let messages = [];
 
 if (shouldContinue && existsSync(messagesFile)) {
-  try {
-    messages = JSON.parse(readFileSync(messagesFile, "utf8"));
-  } catch {}
+  try { messages = JSON.parse(readFileSync(messagesFile, "utf8")); } catch {}
 }
 
 if (messages.length === 0) {
@@ -513,43 +410,28 @@ messages.push({ role: "user", content: prompt });
 // ── ReAct loop ───────────────────────────────────────────────────────
 const MAX_TURNS = 200;
 let msgId = 0;
-const isAnthropic = MODEL.startsWith("anthropic/");
 
 try {
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     messages = compressMessages(messages);
 
-    const reqBody = { model: MODEL, messages, tools: TOOLS };
-    if (isAnthropic) {
-      reqBody.cache_control = { type: "ephemeral" };
-    }
+    // Use unified provider
+    const response = await provider.chat(
+      messages.filter((m) => m.role !== "system"),
+      TOOLS,
+      SYSTEM,
+    );
 
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`,
-        "HTTP-Referer": "https://clawbie.app",
-      },
-      body: JSON.stringify(reqBody),
-    });
+    // Build message for history
+    const historyMsg = { role: "assistant", content: response.content };
+    if (response.tool_calls) historyMsg.tool_calls = response.tool_calls;
+    messages.push(historyMsg);
 
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`API ${res.status}: ${err}`);
-    }
-
-    const data = await res.json();
-    const choice = data.choices?.[0];
-    if (!choice) throw new Error("模型无响应");
-
-    const msg = choice.message;
-    messages.push(msg);
-
+    // Emit assistant event
     const blocks = [];
-    if (msg.content) blocks.push({ type: "text", text: msg.content });
-    if (msg.tool_calls) {
-      for (const tc of msg.tool_calls) {
+    if (response.content) blocks.push({ type: "text", text: response.content });
+    if (response.tool_calls) {
+      for (const tc of response.tool_calls) {
         let input = {};
         try { input = JSON.parse(tc.function.arguments); } catch {}
         blocks.push({ type: "tool_use", name: tc.function.name, input });
@@ -557,13 +439,15 @@ try {
     }
     emit({ type: "assistant", message: { id: `msg-${++msgId}`, content: blocks } });
 
-    if (!msg.tool_calls?.length) {
+    // No tool calls → done
+    if (!response.tool_calls?.length) {
       writeFileSync(messagesFile, JSON.stringify(messages));
-      emit({ type: "result", subtype: "success", is_error: false, result: msg.content || "", session_id: "" });
+      emit({ type: "result", subtype: "success", is_error: false, result: response.content || "", session_id: "" });
       break;
     }
 
-    for (const tc of msg.tool_calls) {
+    // Execute tools
+    for (const tc of response.tool_calls) {
       let args = {};
       try { args = JSON.parse(tc.function.arguments); } catch {}
       const result = await executeTool(tc.function.name, args);
@@ -582,7 +466,7 @@ try {
     writeFileSync(messagesFile, JSON.stringify(messages));
 
     if (turn === MAX_TURNS - 1) {
-      emit({ type: "result", subtype: "error", is_error: true, result: "达到最大轮次限制（50轮），已停止。" });
+      emit({ type: "result", subtype: "error", is_error: true, result: "达到最大轮次限制，已停止。" });
     }
   }
 } catch (e) {

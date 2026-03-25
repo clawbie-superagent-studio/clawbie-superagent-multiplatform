@@ -2,6 +2,6 @@
   "name": "百度搜索",
   "description": "通过百度搜索引擎搜索关键词，返回搜索结果标题、摘要和链接，适合需要查询中文互联网信息的任务",
   "usage": "baidu-search \"关键词\"\nbaidu-search -n 5 \"关键词\"  # 返回前5条结果\nbaidu-search -p 2 \"关键词\"  # 第2页结果",
-  "install": "chmod +x ~/.claude-manager/toolkits/baidu-search/baidu-search.sh && ln -sf ~/.claude-manager/toolkits/baidu-search/baidu-search.sh /usr/local/bin/baidu-search",
+  "install": "chmod +x ~/.clawbie/toolkits/baidu-search/baidu-search.sh && ln -sf ~/.clawbie/toolkits/baidu-search/baidu-search.sh /usr/local/bin/baidu-search",
   "type": "cli"
 }
