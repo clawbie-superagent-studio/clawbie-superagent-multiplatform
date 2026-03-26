@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import Markdown from "react-markdown";
 import "./App.css";
 
 // ── 类型 ──────────────────────────────────────────────────────────────
@@ -50,19 +51,6 @@ interface Toolkit {
   url?: string;
 }
 
-interface BrainInfo {
-  id: string;
-  name: string;
-  description?: string;
-  ready?: boolean;
-  configurable?: boolean;
-  models?: { id: string; name: string }[];
-}
-
-interface BrainConfig {
-  clawbie: string;
-  worker: string;
-}
 
 const WELCOME: Message = {
   role: "clawbie",
@@ -490,7 +478,11 @@ function ClawbiePanel({
               {msg.logs && msg.logs.length > 0 && <LogBlock logs={msg.logs} />}
               {(msg.content || msg.streaming) && (
                 <div className={`bubble ${msg.role}`}>
-                  {msg.content || ""}
+                  {msg.role === "clawbie" ? (
+                    <Markdown>{msg.content || ""}</Markdown>
+                  ) : (
+                    msg.content || ""
+                  )}
                   {msg.streaming && <span className="cursor">▋</span>}
                 </div>
               )}
@@ -588,68 +580,62 @@ function ToolkitPanel({ toolkit }: { toolkit: Toolkit }) {
 }
 
 // ── 设置面板 ────────────────────────────────────────────────────────────
-interface BrainDetail {
-  api_key?: string;
-  model?: string;
+interface ProviderConfig {
+  provider: string;
+  api_key: string;
+  model: string;
+  extract_model: string;
+  worker_model: string;
 }
 
+const PROVIDER_MODELS: Record<string, { id: string; name: string }[]> = {
+  anthropic: [
+    { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
+    { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
+    { id: "claude-haiku-4-5", name: "Claude Haiku 4.5" },
+  ],
+  openrouter: [
+    { id: "google/gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+    { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+    { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4" },
+    { id: "anthropic/claude-opus-4", name: "Claude Opus 4" },
+    { id: "openai/gpt-4.1", name: "GPT-4.1" },
+    { id: "openai/o3", name: "o3" },
+    { id: "deepseek/deepseek-r1", name: "DeepSeek R1" },
+  ],
+  ollama: [
+    { id: "llama3", name: "Llama 3" },
+    { id: "qwen2.5", name: "Qwen 2.5" },
+    { id: "deepseek-r1", name: "DeepSeek R1" },
+  ],
+};
+
 function SettingsPanel({
-  brains,
-  brainConfig,
-  onSave,
   onClose,
 }: {
-  brains: BrainInfo[];
-  brainConfig: BrainConfig;
-  onSave: (config: BrainConfig) => void;
   onClose: () => void;
 }) {
-  const [clawbie, setClawbie] = useState(brainConfig.clawbie);
-  const [worker, setWorker] = useState(brainConfig.worker);
-  const [brainDetails, setBrainDetails] = useState<Record<string, BrainDetail>>({});
-  const [detailsDirty, setDetailsDirty] = useState<Set<string>>(new Set());
+  const [config, setConfig] = useState<ProviderConfig>({
+    provider: "openrouter", api_key: "", model: "", extract_model: "", worker_model: "",
+  });
 
-  // 加载可配置 brain 的 config.json
   useEffect(() => {
-    for (const b of brains) {
-      if (b.configurable) {
-        invoke("get_brain_detail", { brainId: b.id }).then((raw) => {
-          try {
-            const detail = JSON.parse(raw as string);
-            setBrainDetails((prev) => ({ ...prev, [b.id]: detail }));
-          } catch { /* ignore */ }
-        });
-      }
-    }
-  }, [brains]);
+    invoke("get_brain_config").then((raw) => {
+      try { setConfig(JSON.parse(raw as string)); } catch {}
+    });
+  }, []);
 
-  function updateDetail(brainId: string, field: string, value: string) {
-    setBrainDetails((prev) => ({
-      ...prev,
-      [brainId]: { ...prev[brainId], [field]: value },
-    }));
-    setDetailsDirty((prev) => new Set(prev).add(brainId));
+  function update(field: string, value: string) {
+    setConfig((prev) => ({ ...prev, [field]: value }));
   }
 
   async function handleSave() {
-    onSave({ clawbie, worker });
-    // 保存修改过的 brain config
-    for (const id of detailsDirty) {
-      const detail = brainDetails[id];
-      if (detail) {
-        await invoke("set_brain_detail", { brainId: id, config: JSON.stringify(detail) });
-      }
-    }
+    await invoke("set_brain_detail", { brainId: "_", config: JSON.stringify(config) });
     onClose();
   }
 
-  // 找到需要展示配置的 brain（clawbie 或 worker 选中的可配置 brain）
-  const configurableBrainIds = new Set<string>();
-  for (const b of brains) {
-    if (b.configurable && (b.id === clawbie || b.id === worker)) {
-      configurableBrainIds.add(b.id);
-    }
-  }
+  const models = PROVIDER_MODELS[config.provider] || [];
+  const keyPlaceholder = config.provider === "anthropic" ? "sk-ant-..." : config.provider === "openrouter" ? "sk-or-..." : "";
 
   return (
     <div className="settings-overlay" onClick={onClose}>
@@ -661,62 +647,55 @@ function SettingsPanel({
 
         <div className="settings-body">
           <div className="settings-field">
-            <label>Clawbie 大脑</label>
-            <select value={clawbie} onChange={(e) => setClawbie(e.target.value)}>
-              {brains.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}{b.ready === false ? " (未就绪)" : ""}
-                </option>
+            <label>Provider</label>
+            <select value={config.provider} onChange={(e) => update("provider", e.target.value)}>
+              <option value="anthropic">Anthropic (Claude 直连)</option>
+              <option value="openrouter">OpenRouter (多模型)</option>
+              <option value="ollama">Ollama (本地模型)</option>
+            </select>
+          </div>
+
+          {config.provider !== "ollama" && (
+            <div className="settings-field">
+              <label>API Key</label>
+              <input
+                type="password"
+                value={config.api_key || ""}
+                onChange={(e) => update("api_key", e.target.value)}
+                placeholder={keyPlaceholder}
+              />
+            </div>
+          )}
+
+          <div className="settings-field">
+            <label>Clawbie 模型</label>
+            <select value={config.model || ""} onChange={(e) => update("model", e.target.value)}>
+              <option value="">默认</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>
           </div>
 
           <div className="settings-field">
-            <label>Worker 大脑</label>
-            <select value={worker} onChange={(e) => setWorker(e.target.value)}>
-              {brains.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}{b.ready === false ? " (未就绪)" : ""}
-                </option>
+            <label>Worker 模型 (可选，默认同上)</label>
+            <select value={config.worker_model || ""} onChange={(e) => update("worker_model", e.target.value)}>
+              <option value="">同 Clawbie</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>
           </div>
 
-          {[...configurableBrainIds].map((id) => {
-            const brain = brains.find((b) => b.id === id);
-            const detail = brainDetails[id] || {};
-            const models = brain?.models;
-
-            return (
-              <div key={id} className="settings-section">
-                <div className="settings-section-title">{brain?.name} 配置</div>
-
-                <div className="settings-field">
-                  <label>API Key</label>
-                  <input
-                    type="password"
-                    value={detail.api_key || ""}
-                    onChange={(e) => updateDetail(id, "api_key", e.target.value)}
-                    placeholder="sk-or-..."
-                  />
-                </div>
-
-                {models && (
-                  <div className="settings-field">
-                    <label>模型</label>
-                    <select
-                      value={detail.model || ""}
-                      onChange={(e) => updateDetail(id, "model", e.target.value)}
-                    >
-                      {models.map((m) => (
-                        <option key={m.id} value={m.id}>{m.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          <div className="settings-field">
+            <label>记忆提取模型 (可选，建议用轻量模型)</label>
+            <select value={config.extract_model || ""} onChange={(e) => update("extract_model", e.target.value)}>
+              <option value="">同 Clawbie</option>
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="settings-footer">
@@ -742,8 +721,6 @@ export default function App() {
   const [streaming, setStreaming] = useState<Record<string, boolean>>({});
   const [loaded, setLoaded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [brains, setBrains] = useState<BrainInfo[]>([]);
-  const [brainConfig, setBrainConfig] = useState<BrainConfig>({ clawbie: "claude-code", worker: "claude-code" });
 
   // 每个 session 独立的 log 累积器
   const msgLogsRef = useRef<Map<string, Map<string, LogEntry[]>>>(new Map());
@@ -950,30 +927,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // ── 加载 brain 配置 ──────────────────────────────────────────────────
-  useEffect(() => {
-    const fetchBrains = async () => {
-      try {
-        const raw = await invoke("get_brains") as string;
-        const data = JSON.parse(raw);
-        if (Array.isArray(data)) setBrains(data);
-      } catch { /* 静默忽略 */ }
-    };
-    const fetchConfig = async () => {
-      try {
-        const raw = await invoke("get_brain_config") as string;
-        const data = JSON.parse(raw);
-        if (data.clawbie) setBrainConfig(data);
-      } catch { /* 静默忽略 */ }
-    };
-    fetchBrains();
-    fetchConfig();
-  }, []);
-
-  async function saveBrainConfig(config: BrainConfig) {
-    setBrainConfig(config);
-    await invoke("set_brain_config", { clawbie: config.clawbie, worker: config.worker });
-  }
+  // brain 状态已移至 SettingsPanel 内部管理
 
   // ── 新建会话 ─────────────────────────────────────────────────────────
   function addSession() {
@@ -1090,9 +1044,6 @@ export default function App() {
 
       {showSettings && (
         <SettingsPanel
-          brains={brains}
-          brainConfig={brainConfig}
-          onSave={saveBrainConfig}
           onClose={() => setShowSettings(false)}
         />
       )}

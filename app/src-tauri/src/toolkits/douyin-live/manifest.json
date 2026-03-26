@@ -1,7 +1,0 @@
-{
-  "name": "Douyin Live Chat",
-  "description": "Interact with a Douyin live stream: follow streamer, send danmaku (chat messages), read chat history. Uses AppleScript + Chrome JS + cliclick.",
-  "type": "cli",
-  "usage": "PYTHONPATH=~/.clawbie/toolkits/douyin-live python3 -c \"\nfrom douyin_live.tools import <func>\nprint(<func>(...))\n\"\n\nAvailable functions:\n- open_live(room_id) — open a live stream room\n- get_live_info() — get streamer name, viewer count, etc.\n- follow_streamer() — follow the streamer (cliclick)\n- read_chat(count=20) — read recent chat messages\n- send_chat(text) — send a danmaku message\n- wait() — random 3-5s delay for anti-bot",
-  "install": "Requires macOS + Google Chrome + cliclick (brew install cliclick). Accessibility permission required."
-}
