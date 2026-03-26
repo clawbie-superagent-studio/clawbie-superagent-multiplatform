@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createProvider } from "./providers.mjs";
-import { afterChat } from "./memory.mjs";
+import { afterChat, searchMemories, loadCoreSummary } from "./memory.mjs";
 
 // ── stdin ────────────────────────────────────────────────────────────
 const chunks = [];
@@ -52,7 +52,11 @@ const promptParts = [
   readPrompt("toolkit_guide.md"),
 ];
 
-// TODO: 记忆注入（下一步）
+// 核心记忆注入 system prompt（静态，缓存友好）
+const coreSummary = loadCoreSummary();
+if (coreSummary) {
+  promptParts.push(`# 关于主人的记忆\n以下是你对主人的核心了解，回答时主动运用：\n\n${coreSummary}`);
+}
 
 const SYSTEM = promptParts.filter(Boolean).join("\n\n");
 
@@ -407,8 +411,19 @@ if (existsSync(messagesFile)) {
   try { messages = JSON.parse(readFileSync(messagesFile, "utf8")); } catch {}
 }
 
-// 追加本次用户消息
+// 追加本次用户消息（记忆注入在 API 调用时临时插入，不存入 messages）
 messages.push({ role: "user", content: prompt });
+
+// 实时记忆检索：构建注入消息（不存入 messages.json，只用于 API 调用）
+const retrieved = searchMemories(prompt, 5, 5);
+let memoryInjection = [];
+if (retrieved.length > 0) {
+  const memLines = retrieved.map((m) => `- [${m.type}] ${m.text}`).join("\n");
+  memoryInjection = [
+    { role: "user", content: `[相关记忆 — 以下是你对主人已有的了解，请在回答时自然运用]\n${memLines}\n[/相关记忆]` },
+    { role: "assistant", content: "好的，我已了解这些相关信息，会在回答中运用。" },
+  ];
+}
 
 // 检查轮数，超过 100 轮则压缩
 const rounds = groupIntoRounds(messages);
@@ -451,9 +466,18 @@ let msgId = 0;
 
 try {
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    // Use unified provider
+    // Build API messages: history + memory injection before last user message
+    // Memory injection is only for the first turn (when user just sent a message)
+    // After tool calls, no need to re-inject
+    let apiMessages = messages;
+    if (turn === 0 && memoryInjection.length > 0) {
+      // Insert memory before the last user message
+      const lastMsg = messages[messages.length - 1];
+      apiMessages = [...messages.slice(0, -1), ...memoryInjection, lastMsg];
+    }
+
     const response = await provider.chat(
-      messages,
+      apiMessages,
       TOOLS,
       systemWithContext,
     );
