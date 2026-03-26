@@ -105,61 +105,11 @@ fn setup_toolkits() {
 
     // 每个工具包：(目录名, 文件列表)
     let toolkits: Vec<(&str, Vec<(&str, &str)>)> = vec![
-        ("alibaba-search", vec![
-            ("manifest.json", include_str!("toolkits/alibaba-search/manifest.json")),
-            ("alibaba_search.py", include_str!("toolkits/alibaba-search/alibaba_search.py")),
-        ]),
-        ("baidu-search", vec![
-            ("manifest.json", include_str!("toolkits/baidu-search/manifest.json")),
-            ("search.py", include_str!("toolkits/baidu-search/search.py")),
-            ("baidu-search.sh", include_str!("toolkits/baidu-search/baidu-search.sh")),
-        ]),
         ("github-cli", vec![
             ("manifest.json", include_str!("toolkits/github-cli/manifest.json")),
         ]),
-        ("image-tools", vec![
-            ("manifest.json", include_str!("toolkits/image-tools/manifest.json")),
-            ("image_ops.py", include_str!("toolkits/image-tools/image_ops.py")),
-        ]),
         ("worker-manager", vec![
             ("manifest.json", include_str!("toolkits/worker-manager/manifest.json")),
-        ]),
-        ("zhipin-recruiter", vec![
-            ("manifest.json", include_str!("toolkits/zhipin-recruiter/manifest.json")),
-            ("zhipin_recruiter/__init__.py", include_str!("toolkits/zhipin-recruiter/zhipin_recruiter/__init__.py")),
-            ("zhipin_recruiter/chrome_bridge.py", include_str!("toolkits/zhipin-recruiter/zhipin_recruiter/chrome_bridge.py")),
-            ("zhipin_recruiter/page_ops.py", include_str!("toolkits/zhipin-recruiter/zhipin_recruiter/page_ops.py")),
-            ("zhipin_recruiter/tools.py", include_str!("toolkits/zhipin-recruiter/zhipin_recruiter/tools.py")),
-        ]),
-        ("douyin-marketing", vec![
-            ("manifest.json", include_str!("toolkits/douyin-marketing/manifest.json")),
-            ("douyin_marketing/__init__.py", include_str!("toolkits/douyin-marketing/douyin_marketing/__init__.py")),
-            ("douyin_marketing/chrome_bridge.py", include_str!("toolkits/douyin-marketing/douyin_marketing/chrome_bridge.py")),
-            ("douyin_marketing/tools.py", include_str!("toolkits/douyin-marketing/douyin_marketing/tools.py")),
-        ]),
-        ("douyin-video", vec![
-            ("manifest.json", include_str!("toolkits/douyin-video/manifest.json")),
-            ("douyin_video/__init__.py", include_str!("toolkits/douyin-video/douyin_video/__init__.py")),
-            ("douyin_video/chrome_bridge.py", include_str!("toolkits/douyin-video/douyin_video/chrome_bridge.py")),
-            ("douyin_video/tools.py", include_str!("toolkits/douyin-video/douyin_video/tools.py")),
-        ]),
-        ("douyin-live", vec![
-            ("manifest.json", include_str!("toolkits/douyin-live/manifest.json")),
-            ("douyin_live/__init__.py", include_str!("toolkits/douyin-live/douyin_live/__init__.py")),
-            ("douyin_live/chrome_bridge.py", include_str!("toolkits/douyin-live/douyin_live/chrome_bridge.py")),
-            ("douyin_live/tools.py", include_str!("toolkits/douyin-live/douyin_live/tools.py")),
-        ]),
-        ("douyin-drama", vec![
-            ("manifest.json", include_str!("toolkits/douyin-drama/manifest.json")),
-            ("douyin_drama/__init__.py", include_str!("toolkits/douyin-drama/douyin_drama/__init__.py")),
-            ("douyin_drama/chrome_bridge.py", include_str!("toolkits/douyin-drama/douyin_drama/chrome_bridge.py")),
-            ("douyin_drama/tools.py", include_str!("toolkits/douyin-drama/douyin_drama/tools.py")),
-        ]),
-        ("xiaohongshu-marketing", vec![
-            ("manifest.json", include_str!("toolkits/xiaohongshu-marketing/manifest.json")),
-            ("xiaohongshu_marketing/__init__.py", include_str!("toolkits/xiaohongshu-marketing/xiaohongshu_marketing/__init__.py")),
-            ("xiaohongshu_marketing/chrome_bridge.py", include_str!("toolkits/xiaohongshu-marketing/xiaohongshu_marketing/chrome_bridge.py")),
-            ("xiaohongshu_marketing/tools.py", include_str!("toolkits/xiaohongshu-marketing/xiaohongshu_marketing/tools.py")),
         ]),
     ];
 
@@ -377,12 +327,8 @@ fn run_clawbie(
         }
     };
 
-    // 统一引擎：每次都是新对话，记忆系统负责连续性
     if let Some(mut stdin) = child.stdin.take() {
-        let input = serde_json::json!({
-            "prompt": prompt,
-            "continue": false,
-        });
+        let input = serde_json::json!({ "prompt": prompt });
         let _ = stdin.write_all(input.to_string().as_bytes());
     }
 
@@ -477,13 +423,6 @@ fn orc_create(description: &str, name: &str, source_session: &str) -> String {
         let _ = std::fs::write(dir.join("source_session.txt"), source_session);
     }
 
-    // 用标记文件判断是否续接
-    let started_flag = dir.join(".started");
-    let should_continue = started_flag.exists();
-    if !should_continue {
-        let _ = std::fs::write(&started_flag, "ok");
-    }
-
     if !engine_ready_flag().exists() {
         log(&format!("engine not ready, cannot create task {}", id));
         return serde_json::json!({"error": "引擎尚未初始化，请稍等"}).to_string();
@@ -511,16 +450,9 @@ fn orc_create(description: &str, name: &str, source_session: &str) -> String {
             }
         };
 
-        // 写入 prompt（关键规范直接注入，避免 appendSystemPrompt 被忽略）
         if let Some(mut stdin) = child.stdin.take() {
-            let prompt = if should_continue {
-                "继续执行任务。".to_string()
-            } else {
-                "请读取 task.md 并执行任务。\n\n执行规范（必须遵守）：\n1. 每完成一个阶段，覆盖写入 standup.md（格式：已完成/正在做/下一步）\n2. 每一步追加一行到 full-log.md（格式：[时间] 描述）\n3. 任务完成时：写 result.md + 把 status.txt 改为 done\n4. 卡住时：把 status.txt 改为 stuck + 写 blocker.md".to_string()
-            };
             let input = serde_json::json!({
-                "prompt": prompt,
-                "continue": should_continue,
+                "prompt": "请读取 task.md 并执行任务。",
             });
             let _ = stdin.write_all(input.to_string().as_bytes());
         }

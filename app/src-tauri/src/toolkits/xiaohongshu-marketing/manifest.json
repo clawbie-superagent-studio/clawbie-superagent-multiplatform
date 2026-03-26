@@ -1,7 +1,0 @@
-{
-  "name": "小红书营销助手",
-  "description": "自动化小红书操作：搜索笔记、浏览详情、评论互动。通过AppleScript控制Chrome浏览器完成页面操作。",
-  "type": "cli",
-  "usage": "通过 Python 调用，需要设置 PYTHONPATH 指向工具目录：\n\nPYTHONPATH=~/.clawbie/toolkits/xiaohongshu-marketing python3 -c \"\nimport json\nfrom xiaohongshu_marketing.tools import <函数名>\nresult = <函数名>(**参数)\nprint(json.dumps(result, ensure_ascii=False))\n\"\n\n可用函数：\n- search(keyword) — 搜索关键词，返回笔记列表\n- open_note(index=0) — 真实点击打开第N个笔记详情（弹窗）\n- get_comments() — 读取当前笔记详情中的评论\n- post_comment(text) — 发表评论\n- close_note() — 关闭笔记详情弹窗\n- scroll_load_more() — 滚动加载更多搜索结果\n- wait() — 随机等待3-5秒防反爬",
-  "install": "需要 macOS + Google Chrome + cliclick (brew install cliclick)，需授予辅助功能权限"
-}

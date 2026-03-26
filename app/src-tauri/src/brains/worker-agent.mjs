@@ -10,14 +10,12 @@ for await (const chunk of process.stdin) chunks.push(chunk);
 const raw = Buffer.concat(chunks).toString("utf8").trim();
 if (!raw) process.exit(1);
 
-let prompt, shouldContinue;
+let prompt;
 try {
   const input = JSON.parse(raw);
   prompt = input.prompt;
-  shouldContinue = input.continue ?? false;
 } catch {
   prompt = raw;
-  shouldContinue = false;
 }
 
 // ── config ───────────────────────────────────────────────────────────
@@ -91,8 +89,18 @@ const TOOLS = [
   { type: "function", function: { name: "web_search", description: "Search the web.", parameters: { type: "object", properties: { query: { type: "string" }, max_results: { type: "integer" } }, required: ["query"] } } },
 ];
 
+// ── path helper ──────────────────────────────────────────────────────
+const home = process.env.HOME || "";
+function expandPath(p) {
+  if (!p) return p;
+  if (p.startsWith("~/")) return join(home, p.slice(2));
+  if (p.startsWith("~")) return join(home, p.slice(1));
+  return p;
+}
+
 // ── tool execution (identical to clawbie-agent) ──────────────────────
 async function executeTool(name, args) {
+  if (args.path) args.path = expandPath(args.path);
   try {
     switch (name) {
       case "bash": {
@@ -163,7 +171,7 @@ async function executeTool(name, args) {
 // ── session + ReAct loop ─────────────────────────────────────────────
 const messagesFile = join(process.cwd(), ".agent-messages.json");
 let messages = [];
-if (shouldContinue && existsSync(messagesFile)) {
+if (existsSync(messagesFile)) {
   try { messages = JSON.parse(readFileSync(messagesFile, "utf8")); } catch {}
 }
 if (messages.length === 0) messages = [{ role: "system", content: SYSTEM }];

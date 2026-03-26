@@ -10,14 +10,12 @@ for await (const chunk of process.stdin) chunks.push(chunk);
 const raw = Buffer.concat(chunks).toString("utf8").trim();
 if (!raw) process.exit(1);
 
-let prompt, shouldContinue;
+let prompt;
 try {
   const input = JSON.parse(raw);
   prompt = input.prompt;
-  shouldContinue = input.continue ?? false;
 } catch {
   prompt = raw;
-  shouldContinue = false;
 }
 
 // ── config ───────────────────────────────────────────────────────────
@@ -49,14 +47,9 @@ function readPrompt(filename) {
 const promptParts = [
   readPrompt("identity.md"),
   readPrompt("personality.md"),
+  readPrompt("tools_description.md"),
+  readPrompt("toolkit_guide.md"),
 ];
-
-// 非 Anthropic 直连时需要工具描述（Anthropic 用 tool schema 传递）
-if (config.provider !== "anthropic") {
-  promptParts.push(readPrompt("tools_description.md"));
-}
-
-promptParts.push(readPrompt("toolkit_guide.md"));
 
 // TODO: 记忆注入（下一步）
 
@@ -193,8 +186,18 @@ const TOOLS = [
   },
 ];
 
+// ── path helper ──────────────────────────────────────────────────────
+function expandPath(p) {
+  if (!p) return p;
+  if (p.startsWith("~/")) return join(home, p.slice(2));
+  if (p.startsWith("~")) return join(home, p.slice(1));
+  return p;
+}
+
 // ── tool execution ───────────────────────────────────────────────────
 async function executeTool(name, args) {
+  // Expand ~ in path arguments
+  if (args.path) args.path = expandPath(args.path);
   try {
     switch (name) {
       case "bash": {
@@ -324,88 +327,122 @@ async function executeTool(name, args) {
   } catch (e) { return `Error: ${e.message}`; }
 }
 
-// ── context window management ────────────────────────────────────────
-const MODEL_LIMITS = {
-  "claude-sonnet-4-6": 200000, "claude-opus-4-6": 200000, "claude-haiku-4-5": 200000,
-  "google/gemini-2.5-pro": 1000000, "google/gemini-2.5-flash": 1000000,
-  "anthropic/claude-sonnet-4": 200000, "anthropic/claude-opus-4": 200000,
-  "openai/gpt-4.1": 1000000, "openai/o3": 200000,
-  "deepseek/deepseek-r1": 64000,
-};
-const modelId = config.model || "claude-sonnet-4-6";
-const CONTEXT_LIMIT = MODEL_LIMITS[modelId] || 128000;
-const COMPRESS_THRESHOLD = Math.floor(CONTEXT_LIMIT * 0.70);
-const KEEP_RECENT_TURNS = 3;
+// ── context window: 100 rounds + 5 rolling summaries ────────────────
+const WINDOW_SIZE = 100;       // 最多保留 100 轮
+const MAX_SUMMARIES = 5;       // 最多 5 个摘要窗口
+const messagesFile = join(process.cwd(), "messages.json");
+const summariesFile = join(process.cwd(), "summaries.json");
 
-function estimateTokens(msgs) {
-  return msgs.reduce((sum, m) => {
-    const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content || "");
-    const tc = m.tool_calls ? JSON.stringify(m.tool_calls) : "";
-    return sum + Math.ceil((content.length + tc.length) / 4);
-  }, 0);
-}
-
-function groupIntoTurns(msgs) {
-  const turns = [];
+// 按"轮"分组：一轮 = user 消息开头到下一个 user 消息之前
+function groupIntoRounds(msgs) {
+  const rounds = [];
   let current = [];
   for (const m of msgs) {
-    if (m.role === "user" && current.length > 0) { turns.push(current); current = [m]; }
-    else { current.push(m); }
+    if (m.role === "user" && current.length > 0) {
+      rounds.push(current);
+      current = [m];
+    } else {
+      current.push(m);
+    }
   }
-  if (current.length > 0) turns.push(current);
-  return turns;
+  if (current.length > 0) rounds.push(current);
+  return rounds;
 }
 
-function compressMessages(msgs) {
-  if (estimateTokens(msgs) <= COMPRESS_THRESHOLD) return msgs;
-  const first = msgs[0];
-  const rest = msgs.slice(1);
-  const turns = groupIntoTurns(rest);
-  if (turns.length <= KEEP_RECENT_TURNS) return [first, ...turns.flat().map(truncateMessage)];
-  const recentTurns = turns.slice(-KEEP_RECENT_TURNS);
-  const oldTurns = turns.slice(0, -KEEP_RECENT_TURNS);
-  const summaryLines = oldTurns.map((turn) => {
+// 把一组轮次压缩为文字摘要（简单版，不调 LLM）
+function summarizeRounds(rounds) {
+  const lines = rounds.map((round) => {
     const parts = [];
-    for (const m of turn) {
-      if (m.role === "user") parts.push(`用户: ${(typeof m.content === "string" ? m.content : "").substring(0, 100)}`);
-      else if (m.role === "assistant") {
-        if (m.tool_calls) parts.push(`调用: ${m.tool_calls.map((tc) => tc.function.name).join(", ")}`);
-        if (m.content) parts.push(`回复: ${m.content.substring(0, 200)}`);
+    for (const m of round) {
+      if (m.role === "user") {
+        const text = typeof m.content === "string" ? m.content : "";
+        parts.push(`用户: ${text.substring(0, 150)}`);
+      } else if (m.role === "assistant") {
+        if (m.tool_calls) {
+          parts.push(`工具: ${m.tool_calls.map((tc) => tc.function.name).join(", ")}`);
+        }
+        if (m.content) {
+          parts.push(`回复: ${m.content.substring(0, 300)}`);
+        }
       }
     }
     return parts.join(" → ");
   });
-  const summaryMsg = { role: "user", content: `[对话压缩摘要，共 ${oldTurns.length} 轮]\n${summaryLines.join("\n")}\n[摘要结束]` };
-  let result = [first, summaryMsg, ...recentTurns.flat()];
-  if (estimateTokens(result) > COMPRESS_THRESHOLD) result = result.map(truncateMessage);
-  while (estimateTokens(result) > COMPRESS_THRESHOLD && result.length > 4) result.splice(2, 1);
-  return result;
+  return lines.join("\n");
 }
 
-function truncateMessage(m) {
-  if (m.role === "tool") {
-    const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-    if (content.length > 1000) return { ...m, content: content.substring(0, 1000) + "\n... [截断]" };
+// 用 LLM 压缩为高质量摘要
+async function compressWithLLM(rounds) {
+  const rawSummary = summarizeRounds(rounds);
+  try {
+    const result = await provider.extract(
+      `请将以下对话记录压缩为简洁的摘要，保留关键信息、决策和结果，去掉冗余细节。用中文。\n\n${rawSummary}`,
+      "你是一个对话摘要助手。输出简洁的摘要文本，不要加任何前缀或格式标记。"
+    );
+    return result || rawSummary;
+  } catch {
+    // LLM 压缩失败时用简单摘要兜底
+    return rawSummary;
   }
-  if (m.role === "assistant" && m.content && m.content.length > 2000) {
-    return { ...m, content: m.content.substring(0, 2000) + "\n... [截断]" };
-  }
-  return m;
 }
 
-// ── session management ───────────────────────────────────────────────
-const messagesFile = join(process.cwd(), ".agent-messages.json");
+// 加载摘要
+function loadSummaries() {
+  if (existsSync(summariesFile)) {
+    try { return JSON.parse(readFileSync(summariesFile, "utf8")); } catch {}
+  }
+  return [];
+}
+
+function saveSummaries(summaries) {
+  writeFileSync(summariesFile, JSON.stringify(summaries, null, 2));
+}
+
+// ── session: load history + apply window ─────────────────────────────
 let messages = [];
 
-if (shouldContinue && existsSync(messagesFile)) {
+// 始终加载历史消息
+if (existsSync(messagesFile)) {
   try { messages = JSON.parse(readFileSync(messagesFile, "utf8")); } catch {}
 }
 
-if (messages.length === 0) {
-  messages = [{ role: "system", content: SYSTEM }];
+// 追加本次用户消息
+messages.push({ role: "user", content: prompt });
+
+// 检查轮数，超过 100 轮则压缩
+const rounds = groupIntoRounds(messages);
+let summaries = loadSummaries();
+
+if (rounds.length > WINDOW_SIZE) {
+  const overflow = rounds.slice(0, rounds.length - WINDOW_SIZE);
+  const kept = rounds.slice(rounds.length - WINDOW_SIZE);
+
+  // 压缩溢出的轮次为摘要
+  const newSummary = {
+    text: await compressWithLLM(overflow),
+    rounds: overflow.length,
+    created_at: new Date().toISOString(),
+  };
+  summaries.push(newSummary);
+
+  // 超过 5 个窗口则丢弃最旧的
+  if (summaries.length > MAX_SUMMARIES) {
+    summaries = summaries.slice(summaries.length - MAX_SUMMARIES);
+  }
+  saveSummaries(summaries);
+
+  // messages 只保留窗口内的
+  messages = kept.flat();
 }
 
-messages.push({ role: "user", content: prompt });
+// 构建注入 system prompt 的摘要部分
+let systemWithContext = SYSTEM;
+if (summaries.length > 0) {
+  const summaryText = summaries.map((s, i) =>
+    `[摘要 ${i + 1}，${s.rounds} 轮，${s.created_at}]\n${s.text}`
+  ).join("\n\n");
+  systemWithContext += `\n\n# 历史对话摘要\n以下是之前对话的压缩摘要，帮助你保持上下文连续性：\n\n${summaryText}`;
+}
 
 // ── ReAct loop ───────────────────────────────────────────────────────
 const MAX_TURNS = 200;
@@ -413,13 +450,11 @@ let msgId = 0;
 
 try {
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    messages = compressMessages(messages);
-
     // Use unified provider
     const response = await provider.chat(
-      messages.filter((m) => m.role !== "system"),
+      messages,
       TOOLS,
-      SYSTEM,
+      systemWithContext,
     );
 
     // Build message for history

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    claude_tauri_lib::run()
+    clawbie_superagent_lib::run()
 }

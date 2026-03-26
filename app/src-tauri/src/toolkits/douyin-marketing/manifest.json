@@ -1,7 +1,0 @@
-{
-  "name": "抖音营销助手",
-  "description": "自动化抖音操作：搜索内容、浏览帖子、评论互动。通过AppleScript控制Chrome浏览器完成页面操作。",
-  "type": "cli",
-  "usage": "通过 Python 调用，需要设置 PYTHONPATH 指向工具目录：\n\nPYTHONPATH=~/.clawbie/toolkits/douyin-marketing python3 -c \"\nimport json\nfrom douyin_marketing.tools import <函数名>\nresult = <函数名>(**参数)\nprint(json.dumps(result, ensure_ascii=False))\n\"\n\n可用函数：\n- search(keyword) — 搜索关键词，返回视频列表\n- open_comments(index=0) — 打开第N个视频的评论面板\n- get_comments() — 读取当前评论面板中的评论\n- post_comment(text) — 发表评论\n- reply_comment(comment_index, text) — 回复第N条评论\n- close_comments() — 关闭评论面板\n- scroll_load_more() — 滚动加载更多搜索结果\n- wait() — 随机等待3-5秒防反爬",
-  "install": "需要 macOS + Google Chrome，需授予辅助功能权限"
-}
