@@ -3,6 +3,7 @@ import { execSync } from "child_process";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { createProvider } from "./providers.mjs";
+import { afterChat } from "./memory.mjs";
 
 // ── stdin ────────────────────────────────────────────────────────────
 const chunks = [];
@@ -477,6 +478,10 @@ try {
     // No tool calls → done
     if (!response.tool_calls?.length) {
       writeFileSync(messagesFile, JSON.stringify(messages));
+
+      // afterChat: extract memories (async, blocks before emitting result)
+      await afterChat(prompt, response.content || "", provider);
+
       emit({ type: "result", subtype: "success", is_error: false, result: response.content || "", session_id: "" });
       break;
     }

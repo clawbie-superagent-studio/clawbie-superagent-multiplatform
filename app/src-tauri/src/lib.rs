@@ -96,6 +96,7 @@ fn clawbie_session_dir(session_id: &str) -> PathBuf {
 const CLAWBIE_AGENT_SCRIPT: &str = include_str!("brains/clawbie-agent.mjs");
 const WORKER_AGENT_SCRIPT: &str = include_str!("brains/worker-agent.mjs");
 const PROVIDERS_SCRIPT: &str = include_str!("brains/providers.mjs");
+const MEMORY_SCRIPT: &str = include_str!("brains/memory.mjs");
 const DEFAULT_CONFIG: &str = r#"{"provider":"openrouter","api_key":"","model":"google/gemini-2.5-flash","extract_model":"","worker_model":""}"#;
 
 // ── 内置工具包安装 ────────────────────────────────────────────────────
@@ -158,6 +159,7 @@ fn setup_engine() {
     let _ = std::fs::write(dir.join("clawbie-agent.mjs"), CLAWBIE_AGENT_SCRIPT);
     let _ = std::fs::write(dir.join("worker-agent.mjs"), WORKER_AGENT_SCRIPT);
     let _ = std::fs::write(dir.join("providers.mjs"), PROVIDERS_SCRIPT);
+    let _ = std::fs::write(dir.join("memory.mjs"), MEMORY_SCRIPT);
 
     // package.json（只在不存在时写入）
     let pkg = dir.join("package.json");
@@ -808,10 +810,73 @@ fn save_sessions(data: String) {
 
 #[tauri::command]
 fn delete_session(session_id: String) {
-    // 删除 session 目录
     let dir = clawbie_session_dir(&session_id);
     let _ = std::fs::remove_dir_all(&dir);
     log(&format!("deleted session dir: {:?}", dir));
+}
+
+#[tauri::command]
+fn clear_session_context(session_id: String) {
+    let dir = clawbie_session_dir(&session_id);
+    let _ = std::fs::remove_file(dir.join("messages.json"));
+    let _ = std::fs::remove_file(dir.join("summaries.json"));
+    log(&format!("cleared context for session: {}", session_id));
+}
+
+// ── Memory API ───────────────────────────────────────────────────────
+
+fn memory_dir() -> PathBuf { base_dir().join("clawbie").join("memory") }
+
+#[tauri::command]
+fn get_memories() -> String {
+    let mut all = vec![];
+    let dir = memory_dir();
+
+    for (file, tier) in [("important.json", "important"), ("factual.json", "factual")] {
+        let path = dir.join(file);
+        if path.exists() {
+            if let Ok(raw) = std::fs::read_to_string(&path) {
+                if let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(&raw) {
+                    for mut item in items {
+                        if let Some(obj) = item.as_object_mut() {
+                            obj.insert("tier".to_string(), serde_json::Value::String(tier.to_string()));
+                        }
+                        all.push(item);
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by weight descending
+    all.sort_by(|a, b| {
+        let wa = a.get("weight").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let wb = b.get("weight").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        wb.partial_cmp(&wa).unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    serde_json::to_string(&all).unwrap_or_else(|_| "[]".to_string())
+}
+
+#[tauri::command]
+fn delete_memory(memory_id: String) -> String {
+    let dir = memory_dir();
+
+    for file in ["important.json", "factual.json"] {
+        let path = dir.join(file);
+        if !path.exists() { continue; }
+        let Ok(raw) = std::fs::read_to_string(&path) else { continue };
+        let Ok(mut items) = serde_json::from_str::<Vec<serde_json::Value>>(&raw) else { continue };
+        let before = items.len();
+        items.retain(|item| item.get("id").and_then(|v| v.as_str()) != Some(&memory_id));
+        if items.len() < before {
+            let _ = std::fs::write(&path, serde_json::to_string_pretty(&items).unwrap_or_default());
+            log(&format!("deleted memory: {}", memory_id));
+            return serde_json::json!({"status": "ok"}).to_string();
+        }
+    }
+
+    serde_json::json!({"status": "not_found"}).to_string()
 }
 
 #[tauri::command]
@@ -907,6 +972,9 @@ pub fn run() {
             get_sessions,
             save_sessions,
             delete_session,
+            clear_session_context,
+            get_memories,
+            delete_memory,
             get_brains,
             get_brain_config,
             set_brain_config,
