@@ -34,19 +34,37 @@ class AnthropicProvider {
       .filter((m) => m.role !== "system")
       .map((m) => this._convertMessage(m));
 
+    // Prompt caching: mark the last old message as cache breakpoint
+    // Everything up to this point gets cached, only new messages pay full price
+    if (anthropicMessages.length >= 2) {
+      const lastOld = anthropicMessages[anthropicMessages.length - 2];
+      if (typeof lastOld.content === "string") {
+        lastOld.content = [{ type: "text", text: lastOld.content, cache_control: { type: "ephemeral" } }];
+      } else if (Array.isArray(lastOld.content) && lastOld.content.length > 0) {
+        const lastBlock = lastOld.content[lastOld.content.length - 1];
+        lastBlock.cache_control = { type: "ephemeral" };
+      }
+    }
+
     const body = {
       model: this.model,
       max_tokens: 16384,
-      system: system || "",
+      // System prompt with cache control
+      system: [{ type: "text", text: system || "", cache_control: { type: "ephemeral" } }],
       messages: anthropicMessages,
     };
 
     if (tools?.length) {
-      body.tools = tools.map((t) => ({
+      const toolDefs = tools.map((t) => ({
         name: t.function.name,
         description: t.function.description,
         input_schema: t.function.parameters,
       }));
+      // Cache tool definitions too (they don't change between calls)
+      if (toolDefs.length > 0) {
+        toolDefs[toolDefs.length - 1].cache_control = { type: "ephemeral" };
+      }
+      body.tools = toolDefs;
     }
 
     const res = await fetch(`${this.baseURL}/v1/messages`, {
@@ -55,6 +73,7 @@ class AnthropicProvider {
         "Content-Type": "application/json",
         "x-api-key": this.apiKey,
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
       },
       body: JSON.stringify(body),
     });
