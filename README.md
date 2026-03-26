@@ -8,6 +8,18 @@
 
 <a id="english"></a>
 
+## Why We Built This
+
+We love what projects like OpenClaw have done for the personal AI assistant space. But after months of daily use and deep-diving into agent architectures, we hit a wall:
+
+- **Too heavy.** 170MB+ codebase, 15,000 files, dozens of plugins just to get started. Simple things felt complicated.
+- **Too fragile on complex tasks.** Single-agent architectures hit a ceiling — one AI trying to do everything ends up doing nothing reliably.
+- **Too much engineering, not enough intelligence.** Vector databases, plugin registries, hook lifecycles — layers of infrastructure solving problems that AI itself could handle.
+
+We're a team that lives and breathes agent design. Rather than patching what exists, we wanted to build what we believe the future looks like: **a lightweight AI workforce manager where one smart brain delegates to many capable hands** — with memory that makes it truly yours, running entirely on your devices.
+
+Clawbie Superagent is that vision, built from scratch.
+
 ## What is Clawbie?
 
 Clawbie Superagent is an open-source, cross-platform AI workforce orchestrator. Unlike chatbots that just talk back, Clawbie **gets things done** — it understands your intent, breaks down complex tasks, dispatches AI workers, and manages everything from a single desktop app.
@@ -183,7 +195,7 @@ Contributions are welcome! Please read the architecture overview in `PROJECT_STA
 
 ## License
 
-MIT
+Apache-2.0
 
 ---
 
@@ -192,6 +204,18 @@ MIT
 ## Clawbie Superagent（中文）
 
 **你的私人 AI 团队 — 一个大脑，多双手。**
+
+### 为什么做这个项目
+
+我们很欣赏 OpenClaw 等项目为个人 AI 助手领域所做的探索。但在深度使用和研究 Agent 架构的过程中，我们遇到了一些绕不过去的问题：
+
+- **太重了。** 170MB+ 的代码库、15,000 个文件、几十个插件才能跑起来。简单的事情变得很复杂。
+- **复杂任务容易掉链子。** 单 Agent 架构有天花板——一个 AI 试图包办一切，结果什么都做不稳。
+- **工程过度，智能不足。** 向量数据库、插件注册表、Hook 生命周期——层层基础设施在解决 AI 本身就能处理的问题。
+
+我们团队长期专注于 Agent 设计，与其在已有方案上修修补补，不如按照自己的理解，从零打造一款我们心中的未来超级助理：**一个轻量的 AI 团队管理器，一个聪明的大脑调度多双能干的手** — 有记忆、有灵魂、完全跑在你自己的设备上。
+
+Clawbie Superagent，就是这个愿景的实现。
 
 ### 这是什么？
 
@@ -322,4 +346,4 @@ npm run tauri build
 
 ### 许可证
 
-MIT
+Apache-2.0
