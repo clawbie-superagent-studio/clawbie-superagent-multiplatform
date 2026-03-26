@@ -167,18 +167,31 @@ function LogBlock({ logs, title = "执行日志" }: { logs: LogEntry[]; title?: 
 // ── 侧边栏 ────────────────────────────────────────────────────────────
 // ── Memory types config ────────────────────────────────────────────────
 const MEMORY_TYPE_INFO: Record<string, { label: string; icon: string; color: string }> = {
-  identity:     { label: "身份",   icon: "👤", color: "#818cf8" },
-  relationship: { label: "关系",   icon: "👥", color: "#a78bfa" },
-  preference:   { label: "偏好",   icon: "❤️", color: "#f472b6" },
-  habit:        { label: "习惯",   icon: "🔄", color: "#fb923c" },
-  skill:        { label: "技能",   icon: "⭐", color: "#facc15" },
-  goal:         { label: "目标",   icon: "🎯", color: "#4ade80" },
-  value:        { label: "价值观", icon: "✨", color: "#22d3ee" },
-  task:         { label: "任务",   icon: "✅", color: "#60a5fa" },
-  event:        { label: "事件",   icon: "📅", color: "#2dd4bf" },
-  fact:         { label: "事实",   icon: "📌", color: "#94a3b8" },
-  project:      { label: "项目",   icon: "🔨", color: "#60a5fa" },
+  // Important (about the user) — displayed first
+  identity:     { label: "身份",     icon: "👤", color: "#818cf8" },
+  work:         { label: "工作",     icon: "💼", color: "#6366f1" },
+  relationship: { label: "关系",     icon: "👥", color: "#a78bfa" },
+  contact:      { label: "联系方式", icon: "📇", color: "#c084fc" },
+  preference:   { label: "偏好",     icon: "❤️", color: "#f472b6" },
+  habit:        { label: "习惯",     icon: "🔄", color: "#fb923c" },
+  skill:        { label: "技能",     icon: "⭐", color: "#facc15" },
+  goal:         { label: "目标",     icon: "🎯", color: "#4ade80" },
+  value:        { label: "价值观",   icon: "✨", color: "#22d3ee" },
+  health:       { label: "健康",     icon: "🏥", color: "#f87171" },
+  location:     { label: "地点",     icon: "📍", color: "#fb7185" },
+  // Factual (events and facts) — displayed after
+  project:      { label: "项目",     icon: "🔨", color: "#60a5fa" },
+  task:         { label: "任务",     icon: "✅", color: "#34d399" },
+  event:        { label: "事件",     icon: "📅", color: "#2dd4bf" },
+  meeting:      { label: "会议",     icon: "🤝", color: "#38bdf8" },
+  decision:     { label: "决策",     icon: "⚖️", color: "#a78bfa" },
+  deadline:     { label: "截止日期", icon: "⏰", color: "#f97316" },
+  idea:         { label: "想法",     icon: "💡", color: "#fbbf24" },
+  fact:         { label: "事实",     icon: "📌", color: "#94a3b8" },
 };
+
+const IMPORTANT_TYPE_ORDER = ["identity", "work", "relationship", "contact", "preference", "habit", "skill", "goal", "value", "health", "location"];
+const FACTUAL_TYPE_ORDER = ["project", "task", "event", "meeting", "decision", "deadline", "idea", "fact"];
 
 interface MemoryEntry {
   id: string;
@@ -191,22 +204,22 @@ interface MemoryEntry {
   last_hit: string;
 }
 
-function MemorySidebar() {
-  const [expanded, setExpanded] = useState(false);
+// ── Memory Panel (full right panel) ───────────────────────────────────
+function MemoryPanel() {
   const [memories, setMemories] = useState<MemoryEntry[]>([]);
   const [filter, setFilter] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   function load() {
     invoke("get_memories").then((raw) => {
       try { setMemories(JSON.parse(raw as string)); } catch {}
+      setLoading(false);
     });
   }
 
   useEffect(() => { load(); }, []);
-
-  // Refresh every 30s
   useEffect(() => {
-    const timer = setInterval(load, 30000);
+    const timer = setInterval(load, 15000);
     return () => clearInterval(timer);
   }, []);
 
@@ -215,84 +228,91 @@ function MemorySidebar() {
     setMemories((prev) => prev.filter((m) => m.id !== id));
   }
 
-  const types = [...new Set(memories.map((m) => m.type))];
-  const importantTypes = types.filter((t) => ["identity", "relationship", "preference", "habit", "skill", "goal", "value"].includes(t));
-  const factualTypes = types.filter((t) => ["task", "event", "fact", "project"].includes(t));
-
+  const presentTypes = new Set(memories.map((m) => m.type));
+  const orderedTypes = [...IMPORTANT_TYPE_ORDER, ...FACTUAL_TYPE_ORDER].filter((t) => presentTypes.has(t));
   const displayed = filter ? memories.filter((m) => m.type === filter) : memories;
 
+  function formatDate(iso: string) {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    } catch { return ""; }
+  }
+
+  if (loading) {
+    return <div className="memory-panel"><div className="memory-panel-empty">加载中...</div></div>;
+  }
+
+  if (memories.length === 0) {
+    return (
+      <div className="memory-panel">
+        <div className="memory-panel-empty">
+          <div className="memory-empty-icon">🧠</div>
+          <div className="memory-empty-title">暂无记忆</div>
+          <div className="memory-empty-desc">和 Clawbie 聊天后，它会自动记住关于你的重要信息</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <>
-      <div className="sidebar-section-header" onClick={() => setExpanded((v) => !v)}>
-        <span className="sidebar-chevron">{expanded ? "▾" : "▸"}</span>
-        <span>🧠 记忆</span>
-        {memories.length > 0 && <span className="sidebar-badge">{memories.length}</span>}
+    <div className="memory-panel">
+      <div className="memory-panel-header">
+        <h2>🧠 Clawbie 的记忆</h2>
+        <span className="memory-total">{memories.length} 条记忆</span>
       </div>
 
-      {expanded && (
-        <div className="memory-sidebar-content">
-          {memories.length === 0 ? (
-            <div className="sidebar-empty">和 Clawbie 聊天后会自动记忆</div>
-          ) : (
-            <>
-              <div className="memory-filter-bar">
-                <span
-                  className={`memory-filter-chip ${filter === null ? "active" : ""}`}
-                  onClick={() => setFilter(null)}
-                >全部</span>
-                {importantTypes.map((t) => (
-                  <span
-                    key={t}
-                    className={`memory-filter-chip ${filter === t ? "active" : ""}`}
-                    onClick={() => setFilter(filter === t ? null : t)}
-                    style={filter === t ? { borderColor: MEMORY_TYPE_INFO[t]?.color } : {}}
-                  >{MEMORY_TYPE_INFO[t]?.icon} {MEMORY_TYPE_INFO[t]?.label}</span>
-                ))}
-                {importantTypes.length > 0 && factualTypes.length > 0 && <span className="memory-filter-sep">|</span>}
-                {factualTypes.map((t) => (
-                  <span
-                    key={t}
-                    className={`memory-filter-chip ${filter === t ? "active" : ""}`}
-                    onClick={() => setFilter(filter === t ? null : t)}
-                    style={filter === t ? { borderColor: MEMORY_TYPE_INFO[t]?.color } : {}}
-                  >{MEMORY_TYPE_INFO[t]?.icon} {MEMORY_TYPE_INFO[t]?.label}</span>
-                ))}
-              </div>
+      <div className="memory-filter-bar-full">
+        <span
+          className={`memory-filter-chip ${filter === null ? "active" : ""}`}
+          onClick={() => setFilter(null)}
+        >全部</span>
+        {orderedTypes.map((t) => {
+          const count = memories.filter((m) => m.type === t).length;
+          const info = MEMORY_TYPE_INFO[t];
+          return (
+            <span
+              key={t}
+              className={`memory-filter-chip ${filter === t ? "active" : ""}`}
+              onClick={() => setFilter(filter === t ? null : t)}
+              style={filter === t ? { borderColor: info?.color, color: info?.color } : {}}
+            >{info?.icon} {info?.label} {count}</span>
+          );
+        })}
+      </div>
 
-              <div className="memory-list">
-                {displayed.map((m) => {
-                  const info = MEMORY_TYPE_INFO[m.type] || { label: m.type, icon: "📌", color: "#888" };
-                  const weightColor = m.weight >= 0.7 ? "#4ade80" : m.weight >= 0.4 ? "#fb923c" : "#666";
-                  return (
-                    <div key={m.id} className="memory-item">
-                      <div className="memory-item-bar" style={{ background: info.color }} />
-                      <div className="memory-item-body">
-                        <div className="memory-item-header">
-                          <span className="memory-type-badge" style={{ background: info.color + "20", color: info.color }}>
-                            {info.icon} {info.label}
-                          </span>
-                          <span className="memory-tier-badge" style={{ color: m.tier === "important" ? "#fb923c" : "#888" }}>
-                            {m.tier === "important" ? "重要" : "事实"}
-                          </span>
-                          <span style={{ flex: 1 }} />
-                          <span className="memory-weight">
-                            <span className="memory-weight-dot" style={{ background: weightColor }} />
-                            {m.weight.toFixed(2)}
-                          </span>
-                          {m.hit_count > 0 && <span className="memory-hits">↗{m.hit_count}</span>}
-                          <button className="memory-del-btn" onClick={() => handleDelete(m.id)}>×</button>
-                        </div>
-                        <div className="memory-text">{m.text}</div>
-                      </div>
-                    </div>
-                  );
-                })}
+      <div className="memory-grid">
+        {displayed.map((m) => {
+          const info = MEMORY_TYPE_INFO[m.type] || { label: m.type, icon: "📌", color: "#888" };
+          const weightColor = m.weight >= 0.7 ? "#4ade80" : m.weight >= 0.4 ? "#fb923c" : "#666";
+          const date = formatDate(m.last_hit || m.created_at);
+          return (
+            <div key={m.id} className="memory-card">
+              <div className="memory-card-bar" style={{ background: info.color }} />
+              <div className="memory-card-body">
+                <div className="memory-card-top">
+                  <span className="memory-type-badge" style={{ background: info.color + "20", color: info.color }}>
+                    {info.icon} {info.label}
+                  </span>
+                  <span style={{ flex: 1 }} />
+                  <button className="memory-del-btn" onClick={() => handleDelete(m.id)} title="删除">×</button>
+                </div>
+                <div className="memory-card-text">{m.text}</div>
+                <div className="memory-card-meta">
+                  <span className="memory-weight">
+                    <span className="memory-weight-dot" style={{ background: weightColor }} />
+                    {m.weight.toFixed(2)}
+                  </span>
+                  {m.hit_count > 0 && <span className="memory-hits">引用 {m.hit_count} 次</span>}
+                  {date && <span className="memory-date">{date}</span>}
+                </div>
               </div>
-            </>
-          )}
-        </div>
-      )}
-    </>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -442,7 +462,13 @@ function Sidebar({
 
       <div className="sidebar-divider" />
 
-      <MemorySidebar />
+      <div
+        className={`sidebar-section-header ${selected === "memory" ? "active-section" : ""}`}
+        onClick={() => onSelect("memory")}
+      >
+        <span className="sidebar-chevron">🧠</span>
+        <span>记忆</span>
+      </div>
 
       <div className="sidebar-spacer" />
       <div className="sidebar-bottom">
@@ -1166,7 +1192,9 @@ export default function App() {
         onOpenSettings={() => setShowSettings(true)}
       />
       <div className="main-panel">
-        {selectedToolkit ? (
+        {selectedId === "memory" ? (
+          <MemoryPanel />
+        ) : selectedToolkit ? (
           <ToolkitPanel toolkit={selectedToolkit} />
         ) : selectedSession ? (
           <ClawbiePanel
