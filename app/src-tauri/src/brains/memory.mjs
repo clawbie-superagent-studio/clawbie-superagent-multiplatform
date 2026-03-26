@@ -17,8 +17,8 @@ const importantPath = join(memoryDir, "important.json");
 const factualPath = join(memoryDir, "factual.json");
 const coreSummaryPath = join(memoryDir, "core_summary.md");
 
-const IMPORTANT_TYPES = new Set(["identity", "relationship", "preference", "habit", "skill", "goal", "value"]);
-const FACTUAL_TYPES = new Set(["task", "event", "fact", "project"]);
+const IMPORTANT_TYPES = new Set(["identity", "work", "relationship", "contact", "preference", "habit", "skill", "goal", "value", "health", "location"]);
+const FACTUAL_TYPES = new Set(["project", "task", "event", "meeting", "decision", "deadline", "idea", "fact"]);
 
 // ── Load / Save ──────────────────────────────────────────────────────
 
@@ -222,17 +222,22 @@ export async function afterChat(userMessage, reply, provider) {
   const extractPrompt = `从对话中提取值得长期记住的新信息，以JSON数组格式返回（最多5条，无新信息返回[]）。
 
 ${existingCtx}分类规则：
-- 重要记忆（tier=important）：关于主人的重要持久信息
-  type 可选：identity（身份背景）、relationship（人际关系+联系方式）、preference（偏好）、
-  habit（习惯模式）、skill（能力专长）、goal（长期目标）、value（价值观性格）
-- 事实记忆（tier=factual）：临时性、一次性的信息
-  type 可选：task（任务）、event（事件）、fact（一般事实）、project（项目相关）
+- 重要记忆（tier=important）：关于主人的持久信息
+  type 可选：identity（姓名、年龄、身份背景）、work（公司、职位、行业）、
+  relationship（家人、朋友、同事关系）、contact（邮箱、电话、社交账号）、
+  preference（喜好、口味、风格偏好）、habit（日常习惯、作息模式）、
+  skill（专业技能、语言能力）、goal（长期目标、职业规划）、
+  value（价值观、做事原则）、health（健康状况、过敏信息）、
+  location（居住地、常去地点、办公地址）
+- 事实记忆（tier=factual）：临时性的事件和信息
+  type 可选：project（正在做的项目）、task（具体任务）、event（发生的事件）、
+  meeting（会议相关）、decision（做出的决策）、deadline（截止日期）、
+  idea（想法灵感）、fact（一般事实）
 
 提取原则：
-- 用户主动提及的个人信息必须提取（家庭、职业、爱好、关系等）
+- 用户主动提及的个人信息必须提取
 - text 用完整陈述句，主语为用户
 - 不提取用户对AI的评价、期望、情绪反应
-- 联系人信息必须包含具体联系方式
 - 已有记忆中存在的信息不要重复提取
 
 JSON格式：[{"text": "...", "tier": "important|factual", "type": "..."}]
